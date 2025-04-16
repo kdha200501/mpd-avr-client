@@ -1,0 +1,36 @@
+{
+  "name": "mpd-avr-client",
+  "version": "1.0.0",
+  "description": "AVR as a MPD client",
+  "bin": {
+    "mpd-avr-client": "cli.js"
+  },
+  "scripts": {
+    "start": "./cli.js",
+    "lint": "eslint **/*.js",
+    "lint:fix": "eslint --fix **/*.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "kdha200501@gmail.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kdha200501/mpd-avr-client"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "rxjs": "^7.8.2"
+  },
+  "keywords": [
+    "CEC",
+    "AVR",
+    "MPD"
+  ],
+  "devDependencies": {
+    "eslint": "^7.9.0",
+    "eslint-config-prettier": "^6.11.0",
+    "eslint-plugin-prettier": "^3.1.4",
+    "husky": "^4.3.0",
+    "lint-staged": "^10.4.0",
+    "prettier": "^2.1.2"
+  }
+}
