@@ -170,12 +170,17 @@ const updateOsd = (
    *   playlists.length: ${playlists.length}
    *   `);
    */
+
+  // if the OSD is displaying the playlists
   if (showPlaylist) {
+    // then print the current playlist
     return cecClientProcess.stdin.write(
       `tx 15:47:${convertOsdToHex(playlists[playlistIdx])}`
     );
   }
 
+  // if the OSD is displaying the player status,
+  // then print the current MPD state
   cecClientProcess.stdin.write(`tx 15:47:${convertOsdToHex(state)}`);
 };
 
@@ -378,12 +383,16 @@ const onAudioDeviceChange = (
 const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
   const { showPlaylist, playlists, playlistIdx } = currentAppState;
 
+  // if the OSD is displaying the playlists
   if (showPlaylist) {
+    // then handle playlist navigation
     if (!playlists.length) {
       return { ...currentAppState };
     }
 
-    // arrow up action
+    /**
+     * @desc arrow up action
+     */
     if (arrowUpKeyupRegExp.test(cecTransmission)) {
       return {
         ...currentAppState,
@@ -391,7 +400,9 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
       };
     }
 
-    // arrow down action
+    /**
+     * @desc arrow down action
+     */
     if (arrowDownKeyupRegExp.test(cecTransmission)) {
       return {
         ...currentAppState,
@@ -399,45 +410,72 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
       };
     }
 
-    // enter action
+    /**
+     * @desc enter action
+     */
     if (enterKeyupRegExp.test(cecTransmission)) {
       void sendMpCommand('clear', `load "${playlists[playlistIdx]}"`, 'play');
       return { ...currentAppState };
     }
 
+    /**
+     * @desc close playlist
+     */
+    if (returnKeyupRegExp.test(cecTransmission)) {
+      return {
+        ...currentAppState,
+        showPlaylist: !playOrPauseRegExp.test(currentAppState.state),
+      };
+    }
+
     return { ...currentAppState };
   }
 
-  // show playlist action
+  // if the OSD is displaying the player status,
+  // then handle player actions
+
+  /**
+   * @desc show playlist action
+   */
   if (returnKeyupRegExp.test(cecTransmission)) {
     return { ...currentAppState, showPlaylist: true };
   }
 
-  // play action
+  /**
+   * @desc play action
+   */
   if (playKeyupRegExp.test(cecTransmission)) {
     void sendMpCommand('play');
     return { ...currentAppState };
   }
 
-  // pause action
+  /**
+   * @desc pause action
+   */
   if (pauseKeyupRegExp.test(cecTransmission)) {
     void sendMpCommand('pause');
     return { ...currentAppState };
   }
 
-  // stop action
+  /**
+   * @desc stop action
+   */
   if (stopKeyupRegExp.test(cecTransmission)) {
     void sendMpCommand('stop');
     return { ...currentAppState };
   }
 
-  // next song action
+  /**
+   * @desc next song action
+   */
   if (nextKeyupRegExp.test(cecTransmission)) {
     void sendMpCommand('next');
     return { ...currentAppState };
   }
 
-  // previous song action
+  /**
+   * @desc previous song action
+   */
   if (previousKeyupRegExp.test(cecTransmission)) {
     void sendMpCommand('previous');
     return { ...currentAppState };
