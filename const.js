@@ -23,5 +23,6 @@ module.exports = {
   playlistFoldersBasePathSettingRegExp: /^music_directory.*"([^"]+)"/, // path to a directory that contains song folders
   playlistFilesBasePathSettingRegExp: /^playlist_directory.*"([^"]+)"/, // path to a directory that contains .m3u playlist files
   playOrPauseRegExp: /(play|pause)/i,
+  playRegExp: /play/i,
   stopRegExp: /stop/i,
 };

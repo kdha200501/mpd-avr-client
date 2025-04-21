@@ -32,7 +32,7 @@ const {
   isAppStateChanged,
   getMpClientEvent,
   getCecClientEvent,
-  updateOsd,
+  displayAppState,
 } = require('./utils');
 
 /**
@@ -209,7 +209,7 @@ currentAppState$
     ),
     takeUntil(destroy$)
   )
-  .subscribe((appState) => updateOsd(cecClientProcess, appState)); // update OSD according to state change
+  .subscribe((appState) => displayAppState(cecClientProcess, appState)); // update OSD according to application state
 
 cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
   // on next

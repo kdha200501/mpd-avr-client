@@ -30,6 +30,7 @@ const {
   playlistFoldersBasePathSettingRegExp,
   playlistFilesBasePathSettingRegExp,
   playOrPauseRegExp,
+  playRegExp,
   stopRegExp,
 } = require('./const');
 
@@ -154,14 +155,14 @@ const sendMpCommand = (...commands) =>
  * @param {AppState} appState The current application state
  * @returns {number} An identifier for the timer
  */
-const updateOsd = (
+const displayAppState = (
   cecClientProcess,
   { isAudioDeviceOn, state, showPlaylist, playlistIdx, playlists }
 ) => {
   /*
    * console.log(`
    *   =============
-   *   = updateOsd =
+   *   = displayAppState =
    *   =============
    *   isAudioDeviceOn: ${isAudioDeviceOn}
    *   state: ${state}
@@ -356,11 +357,16 @@ const onAudioDeviceChange = (
   isAudioDeviceOn,
   currentAppState
 ) => {
+  // if there is no change in the power status of the AVR
   if (isAudioDeviceOn === currentAppState.isAudioDeviceOn) {
+    // then no-op
     return { ...currentAppState };
   }
 
+  // if there is a change in the power status of the AVR, and
+  // if the AVR turns on
   if (isAudioDeviceOn) {
+    // then update the application state
     return {
       ...currentAppState,
       isAudioDeviceOn,
@@ -368,10 +374,15 @@ const onAudioDeviceChange = (
     };
   }
 
-  void sendMpCommand('pause');
+  const { state } = currentAppState;
+
+  // if there is a change in the power status of the AVR, and
+  // if the AVR turns off,
+  // then reset application
+  playRegExp.test(state) && sendMpCommand('pause');
   cecClientProcess.stdin.write('as');
 
-  return { ...currentAppState, isAudioDeviceOn };
+  return { ...currentAppState, isAudioDeviceOn, showPlaylist: true };
 };
 
 /**
@@ -614,5 +625,5 @@ module.exports = {
   isAppStateChanged,
   getMpClientEvent,
   getCecClientEvent,
-  updateOsd,
+  displayAppState,
 };
