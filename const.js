@@ -2,7 +2,7 @@ const getRxRegExp = (hex) =>
   new RegExp(`^TRAFFIC:\\s*\\[\\s*(\\d+)\\s*\\]\\s*>>\\s*${hex}\\s*`);
 
 module.exports = {
-  audioDeviceRequestRecorderNameLogRegExp: getRxRegExp('51:46'),
+  audioDeviceRequestDisplayNameRegExp: getRxRegExp('51:46'),
   audioDeviceTurnOnRegExp: getRxRegExp('5f:72:01'),
   audioDeviceStandByRegExp: getRxRegExp('5f:72:00'),
   audioDeviceIsOnRegExp: getRxRegExp('51:90:00'),
