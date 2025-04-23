@@ -14,10 +14,11 @@ const {
 } = require('rxjs/operators');
 
 const {
-  audioDeviceTurnOnRegExp,
-  audioDeviceStandByRegExp,
-  audioDeviceIsOnRegExp,
-  audioDeviceIsStandByRegExp,
+  avrRequestDisplayNameRegExp,
+  avrTurnOnRegExp,
+  avrStandByRegExp,
+  avrIsOnRegExp,
+  avrIsStandByRegExp,
   arrowUpKeyupRegExp,
   arrowDownKeyupRegExp,
   enterKeyupRegExp,
@@ -32,6 +33,7 @@ const {
   playOrPauseRegExp,
   playRegExp,
   stopRegExp,
+  pauseRegExp,
 } = require('./const');
 
 const osdMaxLength = 14;
@@ -90,6 +92,12 @@ const getFileName = (directory, dirent) =>
 
     resolve();
   });
+
+const rightShiftString = (str, shift) => {
+  const { length } = str;
+  const idx = length - shift;
+  return `${str.slice(idx)}${str.slice(0, idx)}`;
+};
 
 /**
  * Send command to MPD through nc
@@ -150,39 +158,197 @@ const sendMpCommand = (...commands) =>
   });
 
 /**
- * Update the AVR display
- * @param {ChildProcessWithoutNullStreams} cecClientProcess The API service for the AVR
- * @param {AppState} appState The current application state
- * @returns {number} An identifier for the timer
+ * Determine whether a cec-client event is caused by the AVR requesting the host's name
+ * @param {CecClientEvent} cecClientEvent A cec-client event
+ * @returns {boolean} whether a cec-client event is caused by AVR requesting the host's name
  */
-const displayAppState = (
-  cecClientProcess,
-  { isAudioDeviceOn, state, showPlaylist, playlistIdx, playlists }
-) => {
-  /*
-   * console.log(`
-   *   =============
-   *   = displayAppState =
-   *   =============
-   *   isAudioDeviceOn: ${isAudioDeviceOn}
-   *   state: ${state}
-   *   showPlaylist: ${showPlaylist}
-   *   playlistIdx: ${playlistIdx}
-   *   playlists.length: ${playlists.length}
-   *   `);
-   */
-
-  // if the OSD is displaying the playlists
-  if (showPlaylist) {
-    // then print the current playlist
-    return cecClientProcess.stdin.write(
-      `tx 15:47:${convertOsdToHex(playlists[playlistIdx])}`
-    );
+const isAvrRequestDisplayName = (cecClientEvent) => {
+  if (!cecClientEvent) {
+    return false;
   }
 
-  // if the OSD is displaying the player status,
-  // then print the current MPD state
-  cecClientProcess.stdin.write(`tx 15:47:${convertOsdToHex(state)}`);
+  const { data: cecTransmission } = cecClientEvent;
+  return avrRequestDisplayNameRegExp.test(cecTransmission);
+};
+
+const AvrPowerStatusReducer = function (_cecClientProcess) {
+  return ((cecClientProcess) => (acc, cecClientEvent) => {
+    const { length } = /** @type AvrPowerStatus */ acc;
+    const { data: cecTransmission } =
+      /** @type CecClientEvent */ cecClientEvent;
+
+    // if the request for AVR power status has been made
+    if (length) {
+      // then deduce the AVR power statue from transmissions received
+      return [getIsAudioDeviceOn(cecTransmission)];
+    }
+
+    // if the request for AVR power status has not been made, and
+    // if the AVR is reaching out to identify the host
+    if (isAvrRequestDisplayName(cecClientEvent)) {
+      // then make a request for AVR power status
+      /**
+       * @desc when the host jumps on the HDMI bus, the audio device reaches out to the host and asks for identification
+       */
+      cecClientProcess.stdin.write('pow 5');
+      return [undefined];
+    }
+
+    // if the request for AVR power status has not been made, and
+    // if the AVR is not reaching out to identify the host,
+    // then no-op
+    return acc;
+  })(_cecClientProcess);
+};
+
+/**
+ * Create AppState object
+ * @param {AvrPowerStatus} avrPowerStatus The AVR power status
+ * @param {MpStatus} mpStatus The MP status
+ * @param {string[]} playlists The list of playlist names
+ * @returns {AppState} AppState object
+ */
+const createAppState = (avrPowerStatus, mpStatus, playlists) => {
+  const [isAudioDeviceOn] = avrPowerStatus;
+  const { state, song, playlistlength, elapsed, duration } = mpStatus;
+  const showPlaylist = !playOrPauseRegExp.test(state);
+
+  return /** @type AppState */ {
+    isAudioDeviceOn,
+    showPlaylist,
+    playlistIdx: 0,
+    playlists: /** @type string[] */ [...playlists],
+    state,
+    song,
+    playlistlength,
+    elapsed,
+    duration,
+  };
+};
+
+const AppStateReducer = function (_cecClientProcess) {
+  return ((cecClientProcess) => (currentAppState, event) => {
+    if (!event) {
+      return;
+    }
+
+    let /** @type AppState */ appState;
+
+    // if handling the initial application state
+    if (currentAppState === undefined) {
+      // then initialize the application state
+      appState = /** @type AppState */ event;
+      return { ...appState };
+    }
+
+    appState = currentAppState;
+    const { data, source } = /** @type {CecClientEvent|MpClientEvent} */ event;
+
+    // if handling a subsequent actions or state change
+    switch (source) {
+      // then mutate the application state
+
+      // if the event comes from the music player
+      case 'mpClient':
+        // then update the application state to sync up with the music player state
+        const mpStatus = /** @type MpStatus */ data;
+        return onMpStateChange(mpStatus, appState);
+
+      // if the event comes from the CEC client
+      case 'cecClient':
+        // then update the application state according to the action
+        const cecTransmission = /** @type CecTransmission */ data;
+        const isAudioDeviceOn = getIsAudioDeviceOn(cecTransmission);
+
+        if (isAudioDeviceOn !== undefined) {
+          return onAudioDeviceChange(
+            cecClientProcess,
+            isAudioDeviceOn,
+            appState
+          );
+        }
+
+        return onRemoteControlKeyup(cecTransmission, appState);
+
+      // if the event comes from an unknown source
+      default:
+        // then no-op
+        return { ...appState };
+    }
+  })(_cecClientProcess);
+};
+
+const AppStateRenderer = function (_cecClientProcess) {
+  return ((cecClientProcess) => (appState) => {
+    const {
+      showPlaylist,
+      playlistIdx,
+      playlists,
+      state,
+      song,
+      playlistlength,
+      elapsed,
+      duration,
+    } = /** @type AppState */ appState;
+    let /** @type string */ message;
+
+    // if the OSD is displaying the playlists
+    if (showPlaylist) {
+      // then print the current playlist
+      message = playlists[playlistIdx];
+      return cecClientProcess.stdin.write(
+        `tx 15:47:${convertOsdToHex(message)}`
+      );
+    }
+
+    // if the OSD is displaying the player status, and
+    // if the MP is playing
+    if (playRegExp.test(state)) {
+      // then print the song position in the playlist
+      message = `[${song}/${playlistlength}]`;
+      return cecClientProcess.stdin.write(
+        `tx 15:47:${convertOsdToHex(message)}`
+      );
+    }
+
+    // if the OSD is displaying the player status, and
+    // if the MP is paused,
+    // then print the song progress
+    const elapsedInSeconds = Number(elapsed);
+    const durationInSeconds = Number(duration);
+    const offset =
+      durationInSeconds &&
+      Math.floor((elapsedInSeconds / durationInSeconds) * 10);
+    message = `>${Array.from({ length: 10 }).join('_')}`;
+    message = `[${rightShiftString(message, offset)}]`;
+    cecClientProcess.stdin.write(`tx 15:47:${convertOsdToHex(message)}`);
+  })(_cecClientProcess);
+};
+
+const PromptRenderer = function (_cecClientProcess) {
+  return (
+    (cecClientProcess) =>
+    ([[_, cecClientEvent], appState]) => {
+      const { data: cecTransmission } =
+        /** @type CecClientEvent */ cecClientEvent;
+      const { state } = /** @type AppState */ appState;
+      let /** @type string */ message;
+
+      if (playKeyupRegExp.test(cecTransmission) && !playRegExp.test(state)) {
+        message = 'play';
+        return cecClientProcess.stdin.write(
+          `tx 15:47:${convertOsdToHex(message)}`
+        );
+      }
+
+      if (pauseKeyupRegExp.test(cecTransmission) && !pauseRegExp.test(state)) {
+        message = 'pause';
+        return cecClientProcess.stdin.write(
+          `tx 15:47:${convertOsdToHex(message)}`
+        );
+      }
+    }
+  )(_cecClientProcess);
 };
 
 /**
@@ -191,19 +357,19 @@ const displayAppState = (
  * @returns {undefined|boolean} Whether the AVR is turned on
  */
 const getIsAudioDeviceOn = (cecTransmission) => {
-  if (audioDeviceIsOnRegExp.test(cecTransmission)) {
+  if (avrIsOnRegExp.test(cecTransmission)) {
     return true;
   }
 
-  if (audioDeviceIsStandByRegExp.test(cecTransmission)) {
+  if (avrIsStandByRegExp.test(cecTransmission)) {
     return false;
   }
 
-  if (audioDeviceTurnOnRegExp.test(cecTransmission)) {
+  if (avrTurnOnRegExp.test(cecTransmission)) {
     return true;
   }
 
-  if (audioDeviceStandByRegExp.test(cecTransmission)) {
+  if (avrStandByRegExp.test(cecTransmission)) {
     return false;
   }
 
@@ -380,8 +546,10 @@ const onAudioDeviceChange = (
   // if the AVR turns off,
   // then reset application
   playRegExp.test(state) && sendMpCommand('pause');
-  cecClientProcess.stdin.write('as');
-
+  /**
+   * @desc Unfortunately, the window between the standby event and the next event is too narrow to send a CEC command, some magic number is used here
+   */
+  setTimeout(() => cecClientProcess.stdin.write('as'), 500);
   return { ...currentAppState, isAudioDeviceOn, showPlaylist: true };
 };
 
@@ -456,7 +624,10 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
    * @desc play action
    */
   if (playKeyupRegExp.test(cecTransmission)) {
-    void sendMpCommand('play');
+    /**
+     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     */
+    setTimeout(() => sendMpCommand('play'), 500);
     return { ...currentAppState };
   }
 
@@ -464,7 +635,13 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
    * @desc pause action
    */
   if (pauseKeyupRegExp.test(cecTransmission)) {
-    void sendMpCommand('pause');
+    /**
+     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     */
+    setTimeout(() => {
+      const { state } = currentAppState;
+      playRegExp.test(state) && sendMpCommand('pause');
+    }, 500);
     return { ...currentAppState };
   }
 
@@ -501,13 +678,32 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
  * @param {AppState} currentAppState The current application state
  * @returns {AppState} The next application state
  */
-const onMpStateChange = ({ state }, currentAppState) => {
+const onMpStateChange = (
+  { state, song, playlistlength, elapsed, duration },
+  currentAppState
+) => {
   if (playOrPauseRegExp.test(state)) {
-    return { ...currentAppState, state, showPlaylist: false };
+    return {
+      ...currentAppState,
+      showPlaylist: false,
+      state,
+      song,
+      playlistlength,
+      elapsed,
+      duration,
+    };
   }
 
   if (stopRegExp.test(state)) {
-    return { ...currentAppState, state, showPlaylist: true };
+    return {
+      ...currentAppState,
+      showPlaylist: true,
+      state,
+      song,
+      playlistlength,
+      elapsed,
+      duration,
+    };
   }
 
   return { ...currentAppState };
@@ -515,12 +711,11 @@ const onMpStateChange = ({ state }, currentAppState) => {
 
 /**
  * Compare the current and the next application state to determine whether there is a change of state
- * @param {ChildProcessWithoutNullStreams} cecClientProcess The API service for the AVR
  * @param {AppState} currentAppState The current application state
  * @param {AppState} nextAppState The next application state
  * @returns {boolean} Whether the application state is considered as changed
  */
-const isAppStateChanged = (cecClientProcess, currentAppState, nextAppState) => {
+const isAppStateChanged = (currentAppState, nextAppState) => {
   if (currentAppState.isAudioDeviceOn !== nextAppState.isAudioDeviceOn) {
     return false;
   }
@@ -617,13 +812,14 @@ const getCecClientEvent = (cecClientProcess) =>
 
 module.exports = {
   sendMpCommand,
-  getIsAudioDeviceOn,
   updatePlaylists,
-  onAudioDeviceChange,
-  onRemoteControlKeyup,
-  onMpStateChange,
   isAppStateChanged,
   getMpClientEvent,
   getCecClientEvent,
-  displayAppState,
+  isAvrRequestDisplayName,
+  AvrPowerStatusReducer,
+  createAppState,
+  AppStateReducer,
+  AppStateRenderer,
+  PromptRenderer,
 };

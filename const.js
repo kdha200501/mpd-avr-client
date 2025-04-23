@@ -2,11 +2,11 @@ const getRxRegExp = (hex) =>
   new RegExp(`^TRAFFIC:\\s*\\[\\s*(\\d+)\\s*\\]\\s*>>\\s*${hex}\\s*`);
 
 module.exports = {
-  audioDeviceRequestDisplayNameRegExp: getRxRegExp('51:46'),
-  audioDeviceTurnOnRegExp: getRxRegExp('5f:72:01'),
-  audioDeviceStandByRegExp: getRxRegExp('5f:72:00'),
-  audioDeviceIsOnRegExp: getRxRegExp('51:90:00'),
-  audioDeviceIsStandByRegExp: getRxRegExp('51:90:01'),
+  avrRequestDisplayNameRegExp: getRxRegExp('51:46'),
+  avrTurnOnRegExp: getRxRegExp('5f:72:01'),
+  avrStandByRegExp: getRxRegExp('5f:72:00'),
+  avrIsOnRegExp: getRxRegExp('51:90:00'),
+  avrIsStandByRegExp: getRxRegExp('51:90:01'),
   arrowUpKeyupRegExp: getRxRegExp('51:8b:02'),
   arrowDownKeyupRegExp: getRxRegExp('51:8b:01'),
   enterKeyupRegExp: getRxRegExp('51:8b:00'),
@@ -24,5 +24,6 @@ module.exports = {
   playlistFilesBasePathSettingRegExp: /^playlist_directory.*"([^"]+)"/, // path to a directory that contains .m3u playlist files
   playOrPauseRegExp: /(play|pause)/i,
   playRegExp: /play/i,
+  pauseRegExp: /pause/i,
   stopRegExp: /stop/i,
 };

@@ -1,10 +1,14 @@
 /**
  * @typedef {{
  * isAudioDeviceOn: boolean,
- * state: string,
  * showPlaylist: boolean,
  * playlistIdx: number,
  * playlists: string[],
+ * state: string,
+ * song: string,
+ * playlistlength: string,
+ * elapsed: string,
+ * duration: string,
  * }} AppState
  */
 
@@ -16,6 +20,8 @@
  * consume: string,
  * playlist: string,
  * playlistlength: string,
+ * elapsed: string,
+ * duration: string,
  * mixrampdb: string,
  * state: string,
  * song: string,
@@ -33,7 +39,7 @@
  */
 
 /**
- * @typedef {string} CecTransmission
+ * @typedef {Buffer} CecTransmission
  */
 
 /**
@@ -41,4 +47,8 @@
  * source: 'cecClient',
  * data: CecTransmission,
  * }} CecClientEvent
+ */
+
+/**
+ * @typedef {[undefined|boolean]} AvrPowerStatus
  */

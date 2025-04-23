@@ -17,23 +17,28 @@ const {
   concat,
   combineLatest,
 } = require('rxjs');
-const { share, filter, take, map, scan, takeUntil } = require('rxjs/operators');
+const {
+  share,
+  filter,
+  take,
+  map,
+  scan,
+  withLatestFrom,
+  takeUntil,
+} = require('rxjs/operators');
 
 const {
-  audioDeviceRequestDisplayNameRegExp,
-  playOrPauseRegExp,
-} = require('./const');
-const {
   sendMpCommand,
-  getIsAudioDeviceOn,
   updatePlaylists,
-  onAudioDeviceChange,
-  onRemoteControlKeyup,
-  onMpStateChange,
   isAppStateChanged,
   getMpClientEvent,
   getCecClientEvent,
-  displayAppState,
+  isAvrRequestDisplayName,
+  AvrPowerStatusReducer,
+  createAppState,
+  AppStateReducer,
+  AppStateRenderer,
+  PromptRenderer,
 } = require('./utils');
 
 /**
@@ -72,7 +77,7 @@ const onExit = (isKillSignal = false) => {
 };
 
 /**
- * @desc OnInit - Application State Reducer
+ * @desc OnInit - Observables
  */
 const mpClientEvent$ = /** @type Observable<MpClientEvent> */ getMpClientEvent(
   mpClientProcess
@@ -83,34 +88,13 @@ const cecClientEvent$ =
     cecClientProcess
   ).pipe(share()); // cec service event listener
 
-const isAudioDeviceOn$ =
-  /** @type {Observable<[boolean]>} */ cecClientEvent$.pipe(
-    scan((acc, { data }) => {
-      const { length } = acc;
-
-      // if the request for AVR power status has been made
-      if (length) {
-        // then deduce the AVR power statue from transmissions received
-        return [getIsAudioDeviceOn(data)];
-      }
-
-      // if the request for AVR power status has not been made, and
-      // if the AVR is reaching out to identify the host
-      if (audioDeviceRequestDisplayNameRegExp.test(data)) {
-        // then make a request for AVR power status
-        /**
-         * @desc when the host jumps on the HDMI bus, the audio device reaches out to the host and asks for identification
-         */
-        cecClientProcess.stdin.write('pow 5');
-        return [undefined];
-      }
-
-      // if the request for AVR power status has not been made, and
-      // if the AVR is not reaching out to identify the host,
-      // then no-op
-      return acc;
-    }, []),
-    filter(([audioDeviceIsOn]) => audioDeviceIsOn !== undefined),
+const avrPowerStatus$ =
+  /** @type {Observable<AvrPowerStatus>} */ cecClientEvent$.pipe(
+    scan(
+      new AvrPowerStatusReducer(cecClientProcess),
+      /** @type AvrPowerStatus */ []
+    ),
+    filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
     take(1),
     share()
   );
@@ -118,20 +102,17 @@ const isAudioDeviceOn$ =
 const playlistsUpdatePromise = updatePlaylists();
 
 const initAppState$ = /** @type {Observable<AppState>} */ forkJoin(
-  isAudioDeviceOn$,
+  avrPowerStatus$,
   playlistsUpdatePromise.then(() => sendMpCommand('update')),
   playlistsUpdatePromise
 ).pipe(
-  map(([[isAudioDeviceOn], { state }, playlists]) => ({
-    isAudioDeviceOn,
-    state,
-    showPlaylist: !playOrPauseRegExp.test(state),
-    playlistIdx: 0,
-    playlists,
-  }))
+  map(([avrPowerStatus, mpStatus, playlists]) =>
+    createAppState(avrPowerStatus, mpStatus, playlists)
+  ),
+  share()
 );
 
-const currentAppState$ = /** @type {Observable<AppState>} */ concat(
+const appStateChange$ = /** @type {Observable<AppState>} */ concat(
   initAppState$,
   /**
    * @desc
@@ -140,95 +121,42 @@ const currentAppState$ = /** @type {Observable<AppState>} */ concat(
    */
   merge(cecClientEvent$, mpClientEvent$)
 ).pipe(
-  /**
-   * @desc implement state management as a reducer
-   */
   scan(
-    (currentAppState, event) => {
-      if (!event) {
-        return;
-      }
-
-      // if handling the initial application state
-      if (currentAppState === undefined) {
-        // then initialize the application state
-        return { ...event };
-      }
-
-      const { data, source } =
-        /** @type {CecClientEvent|MpClientEvent} */ event;
-
-      // if handling a subsequent actions or state change
-      switch (source) {
-        // then mutate the application state
-
-        // if the event comes from the music player
-        case 'mpClient':
-          // then update the application state to sync up with the music player state
-          return onMpStateChange(/** @type MpStatus */ data, currentAppState);
-
-        // if the event comes from the CEC client
-        case 'cecClient':
-          // then update the application state according to the action
-          const isAudioDeviceOn = getIsAudioDeviceOn(
-            /** @type CecTransmission */ data
-          );
-
-          if (isAudioDeviceOn !== undefined) {
-            return onAudioDeviceChange(
-              cecClientProcess,
-              isAudioDeviceOn,
-              currentAppState
-            );
-          }
-
-          return onRemoteControlKeyup(
-            /** @type CecTransmission */ data,
-            currentAppState
-          );
-
-        // if the event comes from an unknown source
-        default:
-          // then no-op
-          return { ...currentAppState };
-      }
-    },
+    new AppStateReducer(cecClientProcess),
     /**
      * @desc the application state placeholder
      * @type AppState
      */
     undefined
-  )
+  ),
+  distinctUntilChanged(isAppStateChanged),
+  share()
 );
 
-const appStateChange$ =
-  /** @type {Observable<AppState>} */ currentAppState$.pipe(
-    distinctUntilChanged((currentAppState, nextAppState) =>
-      isAppStateChanged(cecClientProcess, currentAppState, nextAppState)
-    )
-  );
-
-const audioDeviceRequestDisplayName$ =
+const avrRequestDisplayName$ =
   /** @type {Observable<CecClientEvent>} */ cecClientEvent$.pipe(
-    filter(
-      (cecClientEvent) =>
-        cecClientEvent &&
-        audioDeviceRequestDisplayNameRegExp.test(cecClientEvent.data)
-    )
+    filter(isAvrRequestDisplayName)
   );
 
-const initialAudioDevicePowerAndSubsequentPowerOn$ =
+const initialAvrPowerStatusAndSubsequentPowerOn$ =
   /** @type {Observable<void>} */ concat(
-    isAudioDeviceOn$,
-    audioDeviceRequestDisplayName$
+    avrPowerStatus$,
+    avrRequestDisplayName$
   ).pipe(map(() => undefined));
 
 /**
  * @desc OnInit - Subscriptions
  */
-combineLatest(appStateChange$, initialAudioDevicePowerAndSubsequentPowerOn$)
-  .pipe(takeUntil(destroy$))
-  .subscribe(([appState]) => displayAppState(cecClientProcess, appState)); // update OSD according to application state
+combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
+  .pipe(
+    map(([appState]) => appState),
+    takeUntil(destroy$)
+  )
+  .subscribe(new AppStateRenderer(cecClientProcess)); // update OSD according to application state change
+
+combineLatest(initAppState$, cecClientEvent$)
+  .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
+  .subscribe(new PromptRenderer(cecClientProcess)); // update OSD according to prompt
 
 cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
   // on next
