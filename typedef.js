@@ -9,6 +9,8 @@
  * playlistlength: string,
  * elapsed: string,
  * duration: string,
+ * repeat: string,
+ * random: string,
  * }} AppState
  */
 

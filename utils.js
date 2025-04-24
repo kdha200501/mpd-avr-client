@@ -28,6 +28,8 @@ const {
   stopKeyupRegExp,
   nextKeyupRegExp,
   previousKeyupRegExp,
+  redFunctionKeyupRegExp,
+  greenFunctionKeyupRegExp,
   playlistFoldersBasePathSettingRegExp,
   playlistFilesBasePathSettingRegExp,
   playOrPauseRegExp,
@@ -210,7 +212,8 @@ const AvrPowerStatusReducer = function (_cecClientProcess) {
  */
 const createAppState = (avrPowerStatus, mpStatus, playlists) => {
   const [isAudioDeviceOn] = avrPowerStatus;
-  const { state, song, playlistlength, elapsed, duration } = mpStatus;
+  const { state, song, playlistlength, elapsed, duration, repeat, random } =
+    mpStatus;
   const showPlaylist = !playOrPauseRegExp.test(state);
 
   return /** @type AppState */ {
@@ -223,6 +226,8 @@ const createAppState = (avrPowerStatus, mpStatus, playlists) => {
     playlistlength,
     elapsed,
     duration,
+    repeat,
+    random,
   };
 };
 
@@ -331,9 +336,12 @@ const PromptRenderer = function (_cecClientProcess) {
     ([[_, cecClientEvent], appState]) => {
       const { data: cecTransmission } =
         /** @type CecClientEvent */ cecClientEvent;
-      const { state } = /** @type AppState */ appState;
+      const { state, repeat, random } = /** @type AppState */ appState;
       let /** @type string */ message;
 
+      /**
+       * @desc play action
+       */
       if (playKeyupRegExp.test(cecTransmission) && !playRegExp.test(state)) {
         message = 'play';
         return cecClientProcess.stdin.write(
@@ -341,8 +349,31 @@ const PromptRenderer = function (_cecClientProcess) {
         );
       }
 
+      /**
+       * @desc pause action
+       */
       if (pauseKeyupRegExp.test(cecTransmission) && !pauseRegExp.test(state)) {
         message = 'pause';
+        return cecClientProcess.stdin.write(
+          `tx 15:47:${convertOsdToHex(message)}`
+        );
+      }
+
+      /**
+       * @desc toggle repeat action
+       */
+      if (redFunctionKeyupRegExp.test(cecTransmission)) {
+        message = `repeat: ${repeat === '1' ? 'OFF' : 'ON'}`;
+        return cecClientProcess.stdin.write(
+          `tx 15:47:${convertOsdToHex(message)}`
+        );
+      }
+
+      /**
+       * @desc toggle random action
+       */
+      if (greenFunctionKeyupRegExp.test(cecTransmission)) {
+        message = `random: ${random === '1' ? 'OFF' : 'ON'}`;
         return cecClientProcess.stdin.write(
           `tx 15:47:${convertOsdToHex(message)}`
         );
@@ -669,6 +700,36 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
     return { ...currentAppState };
   }
 
+  /**
+   * @desc toggle repeat action
+   */
+  if (redFunctionKeyupRegExp.test(cecTransmission)) {
+    /**
+     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     */
+    setTimeout(() => {
+      let { repeat } = currentAppState;
+      repeat = repeat === '1' ? '0' : '1';
+      void sendMpCommand(`repeat ${repeat}`);
+    }, 500);
+    return { ...currentAppState };
+  }
+
+  /**
+   * @desc toggle random action
+   */
+  if (greenFunctionKeyupRegExp.test(cecTransmission)) {
+    /**
+     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     */
+    setTimeout(() => {
+      let { random } = currentAppState;
+      random = random === '1' ? '0' : '1';
+      void sendMpCommand(`random ${random}`);
+    }, 500);
+    return { ...currentAppState };
+  }
+
   return { ...currentAppState };
 };
 
@@ -679,7 +740,7 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
  * @returns {AppState} The next application state
  */
 const onMpStateChange = (
-  { state, song, playlistlength, elapsed, duration },
+  { state, song, playlistlength, elapsed, duration, repeat, random },
   currentAppState
 ) => {
   if (playOrPauseRegExp.test(state)) {
@@ -691,6 +752,8 @@ const onMpStateChange = (
       playlistlength,
       elapsed,
       duration,
+      repeat,
+      random,
     };
   }
 
@@ -703,6 +766,8 @@ const onMpStateChange = (
       playlistlength,
       elapsed,
       duration,
+      repeat,
+      random,
     };
   }
 
@@ -730,7 +795,11 @@ const isAppStateChanged = (currentAppState, nextAppState) => {
     return currentAppState.playlistIdx === nextAppState.playlistIdx;
   }
 
-  return currentAppState.state === nextAppState.state;
+  return (
+    currentAppState.state === nextAppState.state &&
+    currentAppState.repeat === nextAppState.repeat &&
+    currentAppState.random === nextAppState.random
+  );
 };
 
 /**
