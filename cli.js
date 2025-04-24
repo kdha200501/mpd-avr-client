@@ -20,6 +20,7 @@ const {
 const {
   share,
   filter,
+  delay,
   take,
   map,
   scan,
@@ -95,8 +96,7 @@ const avrPowerStatus$ =
       /** @type AvrPowerStatus */ []
     ),
     filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
-    take(1),
-    share()
+    take(1)
   );
 
 const playlistsUpdatePromise = updatePlaylists();
@@ -135,12 +135,13 @@ const appStateChange$ = /** @type {Observable<AppState>} */ concat(
 
 const avrRequestDisplayName$ =
   /** @type {Observable<CecClientEvent>} */ cecClientEvent$.pipe(
-    filter(isAvrRequestDisplayName)
+    filter(isAvrRequestDisplayName),
+    delay(500)
   );
 
 const initialAvrPowerStatusAndSubsequentPowerOn$ =
   /** @type {Observable<void>} */ concat(
-    avrPowerStatus$,
+    initAppState$,
     avrRequestDisplayName$
   ).pipe(map(() => undefined));
 
