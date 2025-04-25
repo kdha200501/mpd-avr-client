@@ -11,9 +11,8 @@ const { spawn } = require('child_process');
 const {
   Observable,
   merge,
-  Subject,
   distinctUntilChanged,
-  forkJoin,
+  switchMap,
   concat,
   combineLatest,
 } = require('rxjs');
@@ -21,7 +20,6 @@ const {
   share,
   filter,
   delay,
-  take,
   map,
   scan,
   withLatestFrom,
@@ -29,57 +27,28 @@ const {
 } = require('rxjs/operators');
 
 const {
-  sendMpCommand,
-  updatePlaylists,
   isAppStateChanged,
   getMpClientEvent,
   getCecClientEvent,
   isAvrRequestDisplayName,
-  AvrPowerStatusReducer,
-  createAppState,
+  AppStateService,
   AppStateReducer,
   AppStateRenderer,
   PromptRenderer,
+  AppTerminator,
 } = require('./utils');
 
 /**
- * @desc TTY process as API service
+ * @desc Scoped members
  */
 const cecClientProcess = spawn('cec-client', ['-o', 'Loading...']); // read-write stream
-
 const mpClientProcess = spawn('mpc', ['idleloop']); // read-only stream
 
-/**
- * @desc Subjects
- */
-const destroy$ = new Subject();
+const appStateService = new AppStateService(cecClientProcess);
+const appTerminator = new AppTerminator();
 
-/**
- * @desc Scoped methods
- */
+const initAppState$ = appStateService.getInitAppState().pipe(share());
 
-/**
- * Cleanup task
- * @param {boolean} [isKillSignal] Whether the cleanup task is triggered by a kill event
- * @returns {void}
- */
-const onExit = (isKillSignal = false) => {
-  cecClientProcess && cecClientProcess.kill();
-  mpClientProcess && mpClientProcess.kill();
-
-  destroy$.next(null);
-  destroy$.complete();
-
-  if (isKillSignal) {
-    return;
-  }
-
-  process.exit();
-};
-
-/**
- * @desc OnInit - Observables
- */
 const mpClientEvent$ = /** @type Observable<MpClientEvent> */ getMpClientEvent(
   mpClientProcess
 ).pipe(share()); // music player service event listener
@@ -88,29 +57,6 @@ const cecClientEvent$ =
   /** @type Observable<CecClientEvent> */ getCecClientEvent(
     cecClientProcess
   ).pipe(share()); // cec service event listener
-
-const avrPowerStatus$ =
-  /** @type {Observable<AvrPowerStatus>} */ cecClientEvent$.pipe(
-    scan(
-      new AvrPowerStatusReducer(cecClientProcess),
-      /** @type AvrPowerStatus */ []
-    ),
-    filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
-    take(1)
-  );
-
-const playlistsUpdatePromise = updatePlaylists();
-
-const initAppState$ = /** @type {Observable<AppState>} */ forkJoin(
-  avrPowerStatus$,
-  playlistsUpdatePromise.then(() => sendMpCommand('update')),
-  playlistsUpdatePromise
-).pipe(
-  map(([avrPowerStatus, mpStatus, playlists]) =>
-    createAppState(avrPowerStatus, mpStatus, playlists)
-  ),
-  share()
-);
 
 const appStateChange$ = /** @type {Observable<AppState>} */ concat(
   initAppState$,
@@ -136,6 +82,9 @@ const appStateChange$ = /** @type {Observable<AppState>} */ concat(
 const avrRequestDisplayName$ =
   /** @type {Observable<CecClientEvent>} */ cecClientEvent$.pipe(
     filter(isAvrRequestDisplayName),
+    /**
+     * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+     */
     delay(500)
   );
 
@@ -145,21 +94,26 @@ const initialAvrPowerStatusAndSubsequentPowerOn$ =
     avrRequestDisplayName$
   ).pipe(map(() => undefined));
 
+const postInitialAvrPowerStatusCecClientEvent$ = initAppState$.pipe(
+  switchMap(() => cecClientEvent$),
+  takeUntil(appTerminator.destroy$)
+);
+
 /**
- * @desc OnInit - Subscriptions
+ * @desc Subscriptions
  */
 combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
   .pipe(
     map(([appState]) => appState),
-    takeUntil(destroy$)
+    takeUntil(appTerminator.destroy$)
   )
   .subscribe(new AppStateRenderer(cecClientProcess)); // update OSD according to application state change
 
-combineLatest(initAppState$, cecClientEvent$)
-  .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
+postInitialAvrPowerStatusCecClientEvent$
+  .pipe(withLatestFrom(appStateChange$), takeUntil(appTerminator.destroy$))
   .subscribe(new PromptRenderer(cecClientProcess)); // update OSD according to prompt
 
-cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
+cecClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
   // on next
   next: (output) => {
     /**
@@ -168,12 +122,12 @@ cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
     // console.log(output);
   },
   // on complete
-  complete: onExit,
+  complete: () => appTerminator.onExit,
   // on error
-  error: onExit,
+  error: () => appTerminator.onExit,
 }); // service watchdog
 
-mpClientEvent$.pipe(takeUntil(destroy$)).subscribe({
+mpClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
   // on next
   next: (output) => {
     /**
@@ -182,12 +136,12 @@ mpClientEvent$.pipe(takeUntil(destroy$)).subscribe({
     // console.log(output);
   },
   // on complete
-  complete: onExit,
+  complete: () => appTerminator.onExit,
   // on error
-  error: onExit,
+  error: () => appTerminator.onExit,
 }); // service watchdog
 
 /**
  * @desc OnDestroy
  */
-process.on('SIGINT', () => onExit(true));
+process.on('SIGINT', () => appTerminator.onExit(true));

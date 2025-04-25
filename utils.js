@@ -1,7 +1,7 @@
 const { readdir, unlink, writeFile, readFile, stat } = require('fs');
 const { connect } = require('net');
 const { parse, join, extname, basename } = require('path');
-const { from, concat, defer, Observable } = require('rxjs');
+const { from, concat, defer, Observable, forkJoin, Subject } = require('rxjs');
 const {
   take,
   share,
@@ -11,6 +11,7 @@ const {
   withLatestFrom,
   scan,
   filter,
+  map,
 } = require('rxjs/operators');
 
 const {
@@ -203,32 +204,68 @@ const AvrPowerStatusReducer = function (_cecClientProcess) {
   })(_cecClientProcess);
 };
 
-/**
- * Create AppState object
- * @param {AvrPowerStatus} avrPowerStatus The AVR power status
- * @param {MpStatus} mpStatus The MP status
- * @param {string[]} playlists The list of playlist names
- * @returns {AppState} AppState object
- */
-const createAppState = (avrPowerStatus, mpStatus, playlists) => {
-  const [isAudioDeviceOn] = avrPowerStatus;
-  const { state, song, playlistlength, elapsed, duration, repeat, random } =
-    mpStatus;
-  const showPlaylist = !playOrPauseRegExp.test(state);
+const AppStateService = function (_cecClientProcess) {
+  return ((cecClientProcess) => {
+    /**
+     * Create AppState object
+     * @param {AvrPowerStatus} avrPowerStatus The AVR power status
+     * @param {MpStatus} mpStatus The MP status
+     * @param {string[]} playlists The list of playlist names
+     * @returns {AppState} AppState object
+     */
+    const createAppState = (avrPowerStatus, mpStatus, playlists) => {
+      const [isAudioDeviceOn] = avrPowerStatus;
+      const { state, song, playlistlength, elapsed, duration, repeat, random } =
+        mpStatus;
+      const showPlaylist = !playOrPauseRegExp.test(state);
 
-  return /** @type AppState */ {
-    isAudioDeviceOn,
-    showPlaylist,
-    playlistIdx: 0,
-    playlists: /** @type string[] */ [...playlists],
-    state,
-    song,
-    playlistlength,
-    elapsed,
-    duration,
-    repeat,
-    random,
-  };
+      return /** @type AppState */ {
+        isAudioDeviceOn,
+        showPlaylist,
+        playlistIdx: 0,
+        playlists: /** @type string[] */ [...playlists],
+        state,
+        song,
+        playlistlength,
+        elapsed,
+        duration,
+        repeat,
+        random,
+      };
+    };
+
+    /**
+     * Get the initial application state
+     * @returns {Observable<AppState>} Initial application state
+     */
+    const getInitAppState = () => {
+      const avrPowerStatus$ =
+        /** @type {Observable<AvrPowerStatus>} */ getCecClientEvent(
+          cecClientProcess
+        ).pipe(
+          scan(
+            new AvrPowerStatusReducer(cecClientProcess),
+            /** @type AvrPowerStatus */ []
+          ),
+          filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
+          take(1)
+        );
+
+      const playlistsUpdatePromise = updatePlaylists();
+
+      return /** @type {Observable<AppState>} */ forkJoin(
+        avrPowerStatus$,
+        playlistsUpdatePromise.then(() => sendMpCommand('update')),
+        playlistsUpdatePromise
+      ).pipe(
+        map(([avrPowerStatus, mpStatus, playlists]) =>
+          createAppState(avrPowerStatus, mpStatus, playlists)
+        )
+      );
+    };
+
+    return { getInitAppState };
+  })(_cecClientProcess);
 };
 
 const AppStateReducer = function (_cecClientProcess) {
@@ -333,7 +370,7 @@ const AppStateRenderer = function (_cecClientProcess) {
 const PromptRenderer = function (_cecClientProcess) {
   return (
     (cecClientProcess) =>
-    ([[_, cecClientEvent], appState]) => {
+    ([cecClientEvent, appState]) => {
       const { data: cecTransmission } =
         /** @type CecClientEvent */ cecClientEvent;
       const { state, repeat, random } = /** @type AppState */ appState;
@@ -380,6 +417,28 @@ const PromptRenderer = function (_cecClientProcess) {
       }
     }
   )(_cecClientProcess);
+};
+
+const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
+  return ((cecClientProcess, mpClientProcess) => {
+    const destroy$ = new Subject();
+
+    const onExit = (isKillSignal = false) => {
+      cecClientProcess && cecClientProcess.kill();
+      mpClientProcess && mpClientProcess.kill();
+
+      destroy$.next(null);
+      destroy$.complete();
+
+      if (isKillSignal) {
+        return;
+      }
+
+      process.exit();
+    };
+
+    return { destroy$, onExit };
+  })(_cecClientProcess, _mpClientProcess);
 };
 
 /**
@@ -578,7 +637,7 @@ const onAudioDeviceChange = (
   // then reset application
   playRegExp.test(state) && sendMpCommand('pause');
   /**
-   * @desc Unfortunately, the window between the standby event and the next event is too narrow to send a CEC command, some magic number is used here
+   * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
    */
   setTimeout(() => cecClientProcess.stdin.write('as'), 500);
   return { ...currentAppState, isAudioDeviceOn, showPlaylist: true };
@@ -656,7 +715,7 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
    */
   if (playKeyupRegExp.test(cecTransmission)) {
     /**
-     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
      */
     setTimeout(() => sendMpCommand('play'), 500);
     return { ...currentAppState };
@@ -667,7 +726,7 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
    */
   if (pauseKeyupRegExp.test(cecTransmission)) {
     /**
-     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
      */
     setTimeout(() => {
       const { state } = currentAppState;
@@ -705,7 +764,7 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
    */
   if (redFunctionKeyupRegExp.test(cecTransmission)) {
     /**
-     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
      */
     setTimeout(() => {
       let { repeat } = currentAppState;
@@ -720,7 +779,7 @@ const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
    */
   if (greenFunctionKeyupRegExp.test(cecTransmission)) {
     /**
-     * @desc Unfortunately, the window between the keydown and the next event is too narrow to send a CEC command, some magic number is used here
+     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
      */
     setTimeout(() => {
       let { random } = currentAppState;
@@ -880,15 +939,13 @@ const getCecClientEvent = (cecClientProcess) =>
   });
 
 module.exports = {
-  sendMpCommand,
-  updatePlaylists,
   isAppStateChanged,
   getMpClientEvent,
   getCecClientEvent,
   isAvrRequestDisplayName,
-  AvrPowerStatusReducer,
-  createAppState,
+  AppStateService,
   AppStateReducer,
   AppStateRenderer,
   PromptRenderer,
+  AppTerminator,
 };
