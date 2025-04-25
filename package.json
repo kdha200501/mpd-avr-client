@@ -1,6 +1,6 @@
 {
   "name": "mpd-avr-client",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "AVR as a MPD client",
   "bin": {
     "mpd-avr-client": "cli.js"
