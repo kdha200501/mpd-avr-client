@@ -1,6 +1,6 @@
 const { readdir, unlink, writeFile, readFile, stat } = require('fs');
-const { connect } = require('net');
 const { parse, join, extname, basename } = require('path');
+const { connect } = require('net');
 const { from, concat, defer, Observable, forkJoin, Subject } = require('rxjs');
 const {
   take,
@@ -45,167 +45,419 @@ const mpdConfPath = join(root, 'etc', 'mpd.conf');
 const mpdHost = 'localhost';
 const mpdPort = 6600;
 
-const convertOsdToHex = (text) =>
-  [...text.padEnd(osdMaxLength, ' ')]
-    .slice(0, osdMaxLength)
-    .map((char) => char.charCodeAt(0).toString(16).padStart(2, '0'))
-    .join(':');
+const AvrService = function (_cecClientProcess) {
+  return ((cecClientProcess) => {
+    const convertOsdToHex = (message) =>
+      [...message.padEnd(osdMaxLength, ' ')]
+        .slice(0, osdMaxLength)
+        .map((char) => char.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join(':');
 
-const ls = (path) =>
-  new Promise((resolve, reject) =>
-    readdir(path, { withFileTypes: true }, (err, dirents) =>
-      err ? reject(err) : resolve(dirents)
-    )
-  );
+    /**
+     * Display a message on the AVR OSD
+     * @param {string} message A message
+     * @returns {void} No output
+     */
+    const updateOsd = (message) =>
+      void cecClientProcess.stdin.write(`tx 15:47:${convertOsdToHex(message)}`);
 
-const rm = (path) => new Promise((resolve) => unlink(path, () => resolve()));
+    /**
+     * Decode the AVR power status from a CEC Client Event
+     * @param {CecClientEvent} cecClientEvent A CEC Client Event
+     * @returns {AvrPowerStatus} The AVR power status
+     */
+    const decodeAvrPowerStatus = (cecClientEvent) => {
+      const { data: cecTransmission } = cecClientEvent;
 
-const redirect = (data, path) =>
-  new Promise((resolve, reject) =>
-    writeFile(path, data, { encoding: 'utf8' }, (err) =>
-      err ? reject(err) : resolve()
-    )
-  );
+      if (avrIsOnRegExp.test(cecTransmission)) {
+        return [true];
+      }
 
-const getFileName = (directory, dirent) =>
-  new Promise((resolve) => {
-    if (dirent.isDirectory()) {
-      return resolve();
-    }
+      if (avrIsStandByRegExp.test(cecTransmission)) {
+        return [false];
+      }
 
-    const { name } = dirent;
+      if (avrTurnOnRegExp.test(cecTransmission)) {
+        return [true];
+      }
 
-    if (dirent.isFile()) {
-      return resolve(name);
-    }
+      if (avrStandByRegExp.test(cecTransmission)) {
+        return [false];
+      }
 
-    const filePath = join(directory, name);
+      return [undefined];
+    };
 
-    if (dirent.isSymbolicLink()) {
-      stat(filePath, (err, stats) => {
-        if (err) {
+    /**
+     * Determine whether a cec-client event is caused by the AVR requesting the host's name
+     * @param {CecClientEvent} cecClientEvent A cec-client event
+     * @returns {boolean} whether a cec-client event is caused by AVR requesting the host's name
+     */
+    const isAvrRequestDisplayName = (cecClientEvent) => {
+      if (!cecClientEvent) {
+        return false;
+      }
+
+      const { data: cecTransmission } = cecClientEvent;
+      return avrRequestDisplayNameRegExp.test(cecTransmission);
+    };
+
+    return {
+      updateOsd,
+      decodeAvrPowerStatus,
+      isAvrRequestDisplayName,
+    };
+  })(_cecClientProcess);
+};
+
+const PlaylistService = function () {
+  return (() => {
+    const ls = (path) =>
+      new Promise((resolve, reject) =>
+        readdir(path, { withFileTypes: true }, (err, dirents) =>
+          err ? reject(err) : resolve(dirents)
+        )
+      );
+
+    const rm = (path) =>
+      new Promise((resolve) => unlink(path, () => resolve()));
+
+    const redirect = (data, path) =>
+      new Promise((resolve, reject) =>
+        writeFile(path, data, { encoding: 'utf8' }, (err) =>
+          err ? reject(err) : resolve()
+        )
+      );
+
+    const getFileName = (directory, dirent) =>
+      new Promise((resolve) => {
+        if (dirent.isDirectory()) {
           return resolve();
         }
 
-        resolve(stats.isFile() ? name : undefined);
+        const { name } = dirent;
+
+        if (dirent.isFile()) {
+          return resolve(name);
+        }
+
+        const filePath = join(directory, name);
+
+        if (dirent.isSymbolicLink()) {
+          stat(filePath, (err, stats) => {
+            if (err) {
+              return resolve();
+            }
+
+            resolve(stats.isFile() ? name : undefined);
+          });
+
+          return;
+        }
+
+        resolve();
       });
 
-      return;
-    }
+    /**
+     * Index song files within a playlist folder
+     * @param {string} playlistFolderPath The path to a folder containing song files
+     * @returns {Promise<string[]>} a list of song file paths relative to music_directory
+     */
+    const indexPlaylistFolder = (playlistFolderPath) => {
+      const playlistFolderName = basename(playlistFolderPath);
 
-    resolve();
-  });
+      return defer(() => ls(playlistFolderPath))
+        .pipe(
+          switchMap(from), // emit the songFiles sequentially
+          concatMap((dirent) => getFileName(playlistFolderPath, dirent)), // inspect the songFiles sequentially
+          scan(
+            (acc, fileName) =>
+              fileName ? [...acc, join(playlistFolderName, fileName)] : acc,
+            []
+          ),
+          takeLast(1)
+        )
+        .toPromise();
+    };
 
-const rightShiftString = (str, shift) => {
-  const { length } = str;
-  const idx = length - shift;
-  return `${str.slice(idx)}${str.slice(0, idx)}`;
+    /**
+     * Get the playlist_directory value configured for MPD
+     * @returns {Promise<string>} A promise of the playlist_directory value
+     */
+    const getPlaylistFilesBasePath = () =>
+      new Promise((resolve, reject) => {
+        readFile(mpdConfPath, (err, data) => {
+          if (err) {
+            return reject(err);
+          }
+
+          const dataLines = data.toString().split('\n');
+
+          for (const dataLine of dataLines) {
+            if (playlistFilesBasePathSettingRegExp.test(dataLine)) {
+              const [_, path] = dataLine.match(
+                playlistFilesBasePathSettingRegExp
+              );
+              return resolve(path);
+            }
+          }
+
+          resolve(null);
+        });
+      });
+
+    /**
+     * Get the music_directory value configured for MPD
+     * @returns {Promise<string>} A promise of the music_directory value
+     */
+    const getPlaylistFoldersBasePath = () =>
+      new Promise((resolve, reject) => {
+        readFile(mpdConfPath, (err, data) => {
+          if (err) {
+            return reject(err);
+          }
+
+          const dataLines = data.toString().split('\n');
+
+          for (const dataLine of dataLines) {
+            if (playlistFoldersBasePathSettingRegExp.test(dataLine)) {
+              const [_, path] = dataLine.match(
+                playlistFoldersBasePathSettingRegExp
+              );
+              return resolve(path);
+            }
+          }
+
+          resolve(null);
+        });
+      });
+
+    /**
+     * Update the playlist_directory to mirror folders found in music_directory
+     * @returns {Promise<string[]>} The list of playlists
+     */
+    const updatePlaylists = () => {
+      const playlistFilesBasePath$ = defer(() =>
+        getPlaylistFilesBasePath()
+      ).pipe(share());
+
+      const playlistFilePaths$ = playlistFilesBasePath$.pipe(
+        switchMap((playlistFilesBasePath) =>
+          ls(playlistFilesBasePath).then((dirents) =>
+            dirents
+              .filter(
+                (dirent) =>
+                  dirent.isFile() && /\.m3u$/i.test(extname(dirent.name))
+              )
+              .map(({ name }) => join(playlistFilesBasePath, name))
+          )
+        ),
+        take(1)
+      );
+
+      const removePlaylistFiles$ = playlistFilePaths$.pipe(
+        switchMap(from), // emit the playlistFilePaths sequentially
+        concatMap(rm), // remove the playlistFilePaths sequentially
+        takeLast(1)
+      );
+
+      const playlistFoldersBasePath$ = defer(() =>
+        getPlaylistFoldersBasePath()
+      ).pipe(share());
+
+      const playlistFolders$ = playlistFoldersBasePath$.pipe(
+        switchMap((playlistFoldersBasePath) =>
+          ls(playlistFoldersBasePath).then((dirents) =>
+            dirents.filter((dirent) => dirent.isDirectory())
+          )
+        ),
+        take(1)
+      );
+
+      return concat(removePlaylistFiles$, playlistFolders$)
+        .pipe(
+          filter(Boolean),
+          switchMap(from), // emit the playlistFolderPaths sequentially
+          withLatestFrom(playlistFoldersBasePath$, playlistFilesBasePath$),
+          concatMap(
+            ([dirent, playlistFoldersBasePath, playlistFilesBasePath]) => {
+              const { name } = dirent;
+              const playlistFolderPath = join(playlistFoldersBasePath, name);
+              const playlistFilePath = join(
+                playlistFilesBasePath,
+                `${name}.m3u`
+              );
+
+              return indexPlaylistFolder(playlistFolderPath)
+                .then((relativePaths) =>
+                  redirect(relativePaths.join('\n'), playlistFilePath)
+                )
+                .then(() => name);
+            }
+          ), // index the playlistFolderPaths sequentially
+          scan((acc, playlistFileName) => [...acc, playlistFileName], []),
+          takeLast(1)
+        )
+        .toPromise();
+    };
+
+    return { updatePlaylists };
+  })();
 };
 
-/**
- * Send command to MPD through nc
- * @param {string|string[]} commands The commands
- * @returns {Promise<MpStatus>} A promise of the music player status
- */
-const sendMpCommand = (...commands) =>
-  new Promise((resolve, reject) => {
-    const socket = connect({ host: mpdHost, port: mpdPort });
-    let connectReturnCode;
+const MpService = function (mpdHost, mpdPort) {
+  return ((host, port) => {
+    /**
+     * Send command to MPD through nc
+     * @param {string|string[]} commands The commands
+     * @returns {Promise<MpStatus>} A promise of the music player status
+     */
+    const sendMpCommand = (...commands) =>
+      new Promise((resolve, reject) => {
+        const socket = connect({ host, port });
+        let connectReturnCode;
 
-    socket.on('data', (data) => {
-      let dataLines = data.toString().trim().split('\n');
-      const [returnCode] = dataLines.splice(-1, 1);
+        socket.on('data', (data) => {
+          let dataLines = data.toString().trim().split('\n');
+          const [returnCode] = dataLines.splice(-1, 1);
 
-      if (!/^OK\s*/i.test(returnCode)) {
-        socket.end();
-        reject(returnCode);
-        return;
-      }
+          if (!/^OK\s*/i.test(returnCode)) {
+            socket.end();
+            reject(returnCode);
+            return;
+          }
 
-      // if the success response corresponds to the command execution,
-      // then conclude the connection
-      if (connectReturnCode) {
-        socket.end();
-        dataLines = dataLines.map((dataLine) => {
-          const [key, val] = dataLine.split(':');
-          return ['"', key.trim(), '":"', val.trim(), '"'].join('');
+          // if the success response corresponds to the command execution,
+          // then conclude the connection
+          if (connectReturnCode) {
+            socket.end();
+            dataLines = dataLines.map((dataLine) => {
+              const [key, val] = dataLine.split(':');
+              return ['"', key.trim(), '":"', val.trim(), '"'].join('');
+            });
+            dataLines = ['{', dataLines.join(','), '}'];
+            try {
+              resolve(JSON.parse(dataLines.join('')));
+            } catch (ex) {
+              reject(ex);
+            }
+            return;
+          }
+
+          connectReturnCode = returnCode;
+
+          const commandSet = new Set([
+            'command_list_begin',
+            ...commands,
+            'status',
+            'command_list_end',
+            '',
+          ]);
+
+          // if the success response corresponds to the connection initialization,
+          // then send the commands
+          socket.write([...commandSet].join('\n'));
         });
-        dataLines = ['{', dataLines.join(','), '}'];
-        try {
-          resolve(JSON.parse(dataLines.join('')));
-        } catch (ex) {
-          reject(ex);
-        }
-        return;
-      }
 
-      connectReturnCode = returnCode;
+        socket.on('error', (err) => {
+          socket.end();
+          reject(err);
+        });
+      });
 
-      const commandSet = new Set([
-        'command_list_begin',
-        ...commands,
-        'status',
-        'command_list_end',
-        '',
-      ]);
+    const getStatus = () => sendMpCommand('status');
 
-      // if the success response corresponds to the connection initialization,
-      // then send the commands
-      socket.write([...commandSet].join('\n'));
-    });
+    const update = () => sendMpCommand('update');
 
-    socket.on('error', (err) => {
-      socket.end();
-      reject(err);
-    });
-  });
+    const pause = () => sendMpCommand('pause');
 
-/**
- * Determine whether a cec-client event is caused by the AVR requesting the host's name
- * @param {CecClientEvent} cecClientEvent A cec-client event
- * @returns {boolean} whether a cec-client event is caused by AVR requesting the host's name
- */
-const isAvrRequestDisplayName = (cecClientEvent) => {
-  if (!cecClientEvent) {
-    return false;
-  }
+    /**
+     * Play a particular playlist
+     * @param {string} playlist The playlist
+     * @returns {Promise<MpStatus>} A promise of sending the commands
+     */
+    const playPlaylist = (playlist) =>
+      sendMpCommand('clear', `load "${playlist}"`, 'play');
 
-  const { data: cecTransmission } = cecClientEvent;
-  return avrRequestDisplayNameRegExp.test(cecTransmission);
+    const resume = () => sendMpCommand('play');
+
+    const stop = () => sendMpCommand('stop');
+
+    const nextSong = () => sendMpCommand('next');
+
+    const previousSong = () => sendMpCommand('previous');
+
+    /**
+     * Set the repeat mode
+     * @param {'0'|'1'} repeat Whether to turn on repeat
+     * @returns {Promise<MpStatus>} A promise of sending the command
+     */
+    const setRepeat = (repeat) => sendMpCommand(`repeat ${repeat}`);
+
+    /**
+     * Set the random mode
+     * @param {'0'|'1'} random Whether to turn on random
+     * @returns {Promise<MpStatus>} A promise of sending the command
+     */
+    const setRandom = (random) => sendMpCommand(`random ${random}`);
+
+    return {
+      getStatus,
+      update,
+      pause,
+      playPlaylist,
+      resume,
+      stop,
+      nextSong,
+      previousSong,
+      setRepeat,
+      setRandom,
+    };
+  })(mpdHost, mpdPort);
 };
 
 const AvrPowerStatusReducer = function (_cecClientProcess) {
-  return ((cecClientProcess) => (acc, cecClientEvent) => {
-    const { length } = /** @type AvrPowerStatus */ acc;
-    const { data: cecTransmission } =
-      /** @type CecClientEvent */ cecClientEvent;
+  return ((cecClientProcess) => {
+    const avrService = new AvrService(cecClientProcess);
 
-    // if the request for AVR power status has been made
-    if (length) {
-      // then deduce the AVR power statue from transmissions received
-      return [getIsAudioDeviceOn(cecTransmission)];
-    }
+    return (acc, _cecClientEvent) => {
+      const { length } = /** @type AvrPowerStatus */ acc;
+      const cecClientEvent = /** @type CecClientEvent */ _cecClientEvent;
 
-    // if the request for AVR power status has not been made, and
-    // if the AVR is reaching out to identify the host
-    if (isAvrRequestDisplayName(cecClientEvent)) {
-      // then make a request for AVR power status
-      /**
-       * @desc when the host jumps on the HDMI bus, the audio device reaches out to the host and asks for identification
-       */
-      cecClientProcess.stdin.write('pow 5');
-      return [undefined];
-    }
+      // if the request for AVR power status has been made
+      if (length) {
+        // then deduce the AVR power statue from transmissions received
+        return avrService.decodeAvrPowerStatus(cecClientEvent);
+      }
 
-    // if the request for AVR power status has not been made, and
-    // if the AVR is not reaching out to identify the host,
-    // then no-op
-    return acc;
+      // if the request for AVR power status has not been made, and
+      // if the AVR is reaching out to identify the host
+      if (avrService.isAvrRequestDisplayName(cecClientEvent)) {
+        // then make a request for AVR power status
+        /**
+         * @desc when the host jumps on the HDMI bus, the audio device reaches out to the host and asks for identification
+         */
+        cecClientProcess.stdin.write('pow 5');
+        return [undefined];
+      }
+
+      // if the request for AVR power status has not been made, and
+      // if the AVR is not reaching out to identify the host,
+      // then no-op
+      return acc;
+    };
   })(_cecClientProcess);
 };
 
 const AppStateService = function (_cecClientProcess) {
   return ((cecClientProcess) => {
+    const playlistService = new PlaylistService();
+    const mpService = new MpService(mpdHost, mpdPort);
+    const cecClientEvent$ =
+      /** @type Observable<CecClientEvent> */ getCecClientEvent(
+        cecClientProcess
+      ).pipe(share()); // cec service event listener
+
     /**
      * Create AppState object
      * @param {AvrPowerStatus} avrPowerStatus The AVR power status
@@ -239,23 +491,20 @@ const AppStateService = function (_cecClientProcess) {
      * @returns {Observable<AppState>} Initial application state
      */
     const getInitAppState = () => {
-      const avrPowerStatus$ =
-        /** @type {Observable<AvrPowerStatus>} */ getCecClientEvent(
-          cecClientProcess
-        ).pipe(
-          scan(
-            new AvrPowerStatusReducer(cecClientProcess),
-            /** @type AvrPowerStatus */ []
-          ),
-          filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
-          take(1)
-        );
+      const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
+        scan(
+          new AvrPowerStatusReducer(cecClientProcess),
+          /** @type AvrPowerStatus */ []
+        ),
+        filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
+        take(1)
+      );
 
-      const playlistsUpdatePromise = updatePlaylists();
+      const playlistsUpdatePromise = playlistService.updatePlaylists();
 
       return /** @type {Observable<AppState>} */ forkJoin(
         avrPowerStatus$,
-        playlistsUpdatePromise.then(() => sendMpCommand('update')),
+        playlistsUpdatePromise.then(() => mpService.update()),
         playlistsUpdatePromise
       ).pipe(
         map(([avrPowerStatus, mpStatus, playlists]) =>
@@ -264,113 +513,400 @@ const AppStateService = function (_cecClientProcess) {
       );
     };
 
-    return { getInitAppState };
+    /**
+     * Compare the current and the next application state to determine whether there is a change of state
+     * @param {AppState} currentAppState The current application state
+     * @param {AppState} nextAppState The next application state
+     * @returns {boolean} Whether the application state is considered as changed
+     */
+    const isAppStateChanged = (currentAppState, nextAppState) => {
+      if (currentAppState.isAudioDeviceOn !== nextAppState.isAudioDeviceOn) {
+        return false;
+      }
+
+      if (currentAppState.showPlaylist !== nextAppState.showPlaylist) {
+        return false;
+      }
+
+      const { showPlaylist } = currentAppState;
+
+      if (showPlaylist) {
+        return currentAppState.playlistIdx === nextAppState.playlistIdx;
+      }
+
+      return (
+        currentAppState.state === nextAppState.state &&
+        currentAppState.repeat === nextAppState.repeat &&
+        currentAppState.random === nextAppState.random
+      );
+    };
+
+    return { getInitAppState, isAppStateChanged };
   })(_cecClientProcess);
 };
 
 const AppStateReducer = function (_cecClientProcess) {
-  return ((cecClientProcess) => (currentAppState, event) => {
-    if (!event) {
-      return;
-    }
+  return ((cecClientProcess) => {
+    const avrService = new AvrService(cecClientProcess);
+    const mpService = new MpService(mpdHost, mpdPort);
 
-    let /** @type AppState */ appState;
+    /**
+     * Reaction to AVR update
+     * @param {ChildProcessWithoutNullStreams} cecClientProcess The API service for the AVR
+     * @param {boolean} isAudioDeviceOn Whether the AVR is ON
+     * @param {AppState} currentAppState The current application state
+     * @returns {AppState} The next application state
+     */
+    const onAvrPowerStatusChange = (
+      cecClientProcess,
+      isAudioDeviceOn,
+      currentAppState
+    ) => {
+      // if there is no change in the power status of the AVR
+      if (isAudioDeviceOn === currentAppState.isAudioDeviceOn) {
+        // then no-op
+        /**
+         * @desc Notes
+         * - The `on 5` command causes the AVR to stop emitting standby events. This application will not turn on the AVR programmatically
+         */
+        return { ...currentAppState };
+      }
 
-    // if handling the initial application state
-    if (currentAppState === undefined) {
-      // then initialize the application state
-      appState = /** @type AppState */ event;
-      return { ...appState };
-    }
+      // if there is a change in the power status of the AVR, and
+      // if the AVR turns on
+      if (isAudioDeviceOn) {
+        // then update the application state
+        return {
+          ...currentAppState,
+          isAudioDeviceOn,
+          showPlaylist: !playOrPauseRegExp.test(currentAppState.state),
+        };
+      }
 
-    appState = currentAppState;
-    const { data, source } = /** @type {CecClientEvent|MpClientEvent} */ event;
+      const { state } = currentAppState;
 
-    // if handling a subsequent actions or state change
-    switch (source) {
-      // then mutate the application state
+      // if there is a change in the power status of the AVR, and
+      // if the AVR turns off,
+      // then reset application
+      playRegExp.test(state) && mpService.pause();
+      /**
+       * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+       */
+      setTimeout(() => cecClientProcess.stdin.write('as'), 500);
+      return { ...currentAppState, isAudioDeviceOn, showPlaylist: true };
+    };
 
-      // if the event comes from the music player
-      case 'mpClient':
-        // then update the application state to sync up with the music player state
-        const mpStatus = /** @type MpStatus */ data;
-        return onMpStateChange(mpStatus, appState);
+    /**
+     * Reaction to Mp status change
+     * @param {MpStatus} mpStatus The new MP status
+     * @param {AppState} currentAppState The current application state
+     * @returns {AppState} The next application state
+     */
+    const onMpStateChange = (
+      { state, song, playlistlength, elapsed, duration, repeat, random },
+      currentAppState
+    ) => {
+      if (playOrPauseRegExp.test(state)) {
+        return {
+          ...currentAppState,
+          showPlaylist: false,
+          state,
+          song,
+          playlistlength,
+          elapsed,
+          duration,
+          repeat,
+          random,
+        };
+      }
 
-      // if the event comes from the CEC client
-      case 'cecClient':
-        // then update the application state according to the action
-        const cecTransmission = /** @type CecTransmission */ data;
-        const isAudioDeviceOn = getIsAudioDeviceOn(cecTransmission);
+      if (stopRegExp.test(state)) {
+        return {
+          ...currentAppState,
+          showPlaylist: true,
+          state,
+          song,
+          playlistlength,
+          elapsed,
+          duration,
+          repeat,
+          random,
+        };
+      }
 
-        if (isAudioDeviceOn !== undefined) {
-          return onAudioDeviceChange(
-            cecClientProcess,
-            isAudioDeviceOn,
-            appState
-          );
+      return { ...currentAppState };
+    };
+
+    /**
+     * Reaction to AVR remote control event
+     * @param {CecTransmission} cecTransmission The remote control event
+     * @param {AppState} currentAppState The current application state
+     * @returns {AppState} The next application state
+     */
+    const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
+      const { showPlaylist, playlists, playlistIdx } = currentAppState;
+
+      // if the OSD is displaying the playlists
+      if (showPlaylist) {
+        // then handle playlist navigation
+        if (!playlists.length) {
+          return { ...currentAppState };
         }
 
-        return onRemoteControlKeyup(cecTransmission, appState);
+        /**
+         * @desc arrow up action
+         */
+        if (arrowUpKeyupRegExp.test(cecTransmission)) {
+          return {
+            ...currentAppState,
+            playlistIdx:
+              (playlists.length + playlistIdx - 1) % playlists.length,
+          };
+        }
 
-      // if the event comes from an unknown source
-      default:
-        // then no-op
+        /**
+         * @desc arrow down action
+         */
+        if (arrowDownKeyupRegExp.test(cecTransmission)) {
+          return {
+            ...currentAppState,
+            playlistIdx:
+              (playlists.length + playlistIdx + 1) % playlists.length,
+          };
+        }
+
+        /**
+         * @desc enter action
+         */
+        if (enterKeyupRegExp.test(cecTransmission)) {
+          mpService.playPlaylist(playlists[playlistIdx]);
+          return { ...currentAppState };
+        }
+
+        /**
+         * @desc close playlist
+         */
+        if (returnKeyupRegExp.test(cecTransmission)) {
+          return {
+            ...currentAppState,
+            showPlaylist: !playOrPauseRegExp.test(currentAppState.state),
+          };
+        }
+
+        return { ...currentAppState };
+      }
+
+      // if the OSD is displaying the player status,
+      // then handle player actions
+
+      /**
+       * @desc show playlist action
+       */
+      if (returnKeyupRegExp.test(cecTransmission)) {
+        return { ...currentAppState, showPlaylist: true };
+      }
+
+      /**
+       * @desc play action
+       */
+      if (playKeyupRegExp.test(cecTransmission)) {
+        /**
+         * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+         */
+        setTimeout(() => void mpService.resume(), 500);
+        return { ...currentAppState };
+      }
+
+      /**
+       * @desc pause action
+       */
+      if (pauseKeyupRegExp.test(cecTransmission)) {
+        /**
+         * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+         */
+        setTimeout(() => {
+          const { state } = currentAppState;
+          playRegExp.test(state) && mpService.pause();
+        }, 500);
+        return { ...currentAppState };
+      }
+
+      /**
+       * @desc stop action
+       */
+      if (stopKeyupRegExp.test(cecTransmission)) {
+        mpService.stop();
+        return { ...currentAppState };
+      }
+
+      /**
+       * @desc next song action
+       */
+      if (nextKeyupRegExp.test(cecTransmission)) {
+        mpService.nextSong();
+        return { ...currentAppState };
+      }
+
+      /**
+       * @desc previous song action
+       */
+      if (previousKeyupRegExp.test(cecTransmission)) {
+        mpService.previousSong();
+        return { ...currentAppState };
+      }
+
+      /**
+       * @desc toggle repeat action
+       */
+      if (redFunctionKeyupRegExp.test(cecTransmission)) {
+        /**
+         * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+         */
+        setTimeout(
+          () =>
+            void mpService.setRepeat(
+              currentAppState.repeat === '1' ? '0' : '1'
+            ),
+          500
+        );
+        return { ...currentAppState };
+      }
+
+      /**
+       * @desc toggle random action
+       */
+      if (greenFunctionKeyupRegExp.test(cecTransmission)) {
+        /**
+         * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+         */
+        setTimeout(
+          () =>
+            void mpService.setRandom(
+              currentAppState.random === '1' ? '0' : '1'
+            ),
+          500
+        );
+        return { ...currentAppState };
+      }
+
+      return { ...currentAppState };
+    };
+
+    return (currentAppState, event) => {
+      if (!event) {
+        return;
+      }
+
+      let /** @type AppState */ appState;
+
+      // if handling the initial application state
+      if (currentAppState === undefined) {
+        // then initialize the application state
+        appState = /** @type AppState */ event;
         return { ...appState };
-    }
+      }
+
+      appState = currentAppState;
+      const { data, source } =
+        /** @type {CecClientEvent|MpClientEvent} */ event;
+
+      // if handling a subsequent actions or state change
+      switch (source) {
+        // then mutate the application state
+
+        // if the event comes from the music player
+        case 'mpClient':
+          // then update the application state to sync up with the music player state
+          const mpStatus = /** @type MpStatus */ data;
+          return onMpStateChange(mpStatus, appState);
+
+        // if the event comes from the CEC client
+        case 'cecClient':
+          // then update the application state according to the action
+          const [isAudioDeviceOn] = avrService.decodeAvrPowerStatus(
+            /** @type {CecClientEvent} */ event
+          );
+
+          if (isAudioDeviceOn !== undefined) {
+            return onAvrPowerStatusChange(
+              cecClientProcess,
+              isAudioDeviceOn,
+              appState
+            );
+          }
+
+          return onRemoteControlKeyup(
+            /** @type CecTransmission */ data,
+            appState
+          );
+
+        // if the event comes from an unknown source
+        default:
+          // then no-op
+          return { ...appState };
+      }
+    };
   })(_cecClientProcess);
 };
 
 const AppStateRenderer = function (_cecClientProcess) {
-  return ((cecClientProcess) => (appState) => {
-    const {
-      showPlaylist,
-      playlistIdx,
-      playlists,
-      state,
-      song,
-      playlistlength,
-      elapsed,
-      duration,
-    } = /** @type AppState */ appState;
-    let /** @type string */ message;
+  return ((cecClientProcess) => {
+    const avrService = new AvrService(cecClientProcess);
 
-    // if the OSD is displaying the playlists
-    if (showPlaylist) {
-      // then print the current playlist
-      message = playlists[playlistIdx];
-      return cecClientProcess.stdin.write(
-        `tx 15:47:${convertOsdToHex(message)}`
-      );
-    }
+    const rightShiftString = (str, shift) => {
+      const { length } = str;
+      const idx = length - shift;
+      return `${str.slice(idx)}${str.slice(0, idx)}`;
+    };
 
-    // if the OSD is displaying the player status, and
-    // if the MP is playing
-    if (playRegExp.test(state)) {
-      // then print the song position in the playlist
-      message = `[${song}/${playlistlength}]`;
-      return cecClientProcess.stdin.write(
-        `tx 15:47:${convertOsdToHex(message)}`
-      );
-    }
+    return (appState) => {
+      const {
+        showPlaylist,
+        playlistIdx,
+        playlists,
+        state,
+        song,
+        playlistlength,
+        elapsed,
+        duration,
+      } = /** @type AppState */ appState;
+      let /** @type string */ message;
 
-    // if the OSD is displaying the player status, and
-    // if the MP is paused,
-    // then print the song progress
-    const elapsedInSeconds = Number(elapsed);
-    const durationInSeconds = Number(duration);
-    const offset =
-      durationInSeconds &&
-      Math.floor((elapsedInSeconds / durationInSeconds) * 10);
-    message = `>${Array.from({ length: 10 }).join('_')}`;
-    message = `[${rightShiftString(message, offset)}]`;
-    cecClientProcess.stdin.write(`tx 15:47:${convertOsdToHex(message)}`);
+      // if the OSD is displaying the playlists
+      if (showPlaylist) {
+        // then print the current playlist
+        message = playlists[playlistIdx];
+        return avrService.updateOsd(message);
+      }
+
+      // if the OSD is displaying the player status, and
+      // if the MP is playing
+      if (playRegExp.test(state)) {
+        // then print the song position in the playlist
+        message = `[${song}/${playlistlength}]`;
+        return avrService.updateOsd(message);
+      }
+
+      // if the OSD is displaying the player status, and
+      // if the MP is paused,
+      // then print the song progress
+      const elapsedInSeconds = Number(elapsed);
+      const durationInSeconds = Number(duration);
+      const offset =
+        durationInSeconds &&
+        Math.floor((elapsedInSeconds / durationInSeconds) * 10);
+      message = `>${Array.from({ length: 10 }).join('_')}`;
+      message = `[${rightShiftString(message, offset)}]`;
+      return avrService.updateOsd(message);
+    };
   })(_cecClientProcess);
 };
 
 const PromptRenderer = function (_cecClientProcess) {
-  return (
-    (cecClientProcess) =>
-    ([cecClientEvent, appState]) => {
+  return ((cecClientProcess) => {
+    const avrService = new AvrService(cecClientProcess);
+
+    return ([cecClientEvent, appState]) => {
       const { data: cecTransmission } =
         /** @type CecClientEvent */ cecClientEvent;
       const { state, repeat, random } = /** @type AppState */ appState;
@@ -381,9 +917,7 @@ const PromptRenderer = function (_cecClientProcess) {
        */
       if (playKeyupRegExp.test(cecTransmission) && !playRegExp.test(state)) {
         message = 'play';
-        return cecClientProcess.stdin.write(
-          `tx 15:47:${convertOsdToHex(message)}`
-        );
+        return avrService.updateOsd(message);
       }
 
       /**
@@ -391,9 +925,7 @@ const PromptRenderer = function (_cecClientProcess) {
        */
       if (pauseKeyupRegExp.test(cecTransmission) && !pauseRegExp.test(state)) {
         message = 'pause';
-        return cecClientProcess.stdin.write(
-          `tx 15:47:${convertOsdToHex(message)}`
-        );
+        return avrService.updateOsd(message);
       }
 
       /**
@@ -401,9 +933,7 @@ const PromptRenderer = function (_cecClientProcess) {
        */
       if (redFunctionKeyupRegExp.test(cecTransmission)) {
         message = `repeat: ${repeat === '1' ? 'OFF' : 'ON'}`;
-        return cecClientProcess.stdin.write(
-          `tx 15:47:${convertOsdToHex(message)}`
-        );
+        return avrService.updateOsd(message);
       }
 
       /**
@@ -411,12 +941,10 @@ const PromptRenderer = function (_cecClientProcess) {
        */
       if (greenFunctionKeyupRegExp.test(cecTransmission)) {
         message = `random: ${random === '1' ? 'OFF' : 'ON'}`;
-        return cecClientProcess.stdin.write(
-          `tx 15:47:${convertOsdToHex(message)}`
-        );
+        return avrService.updateOsd(message);
       }
-    }
-  )(_cecClientProcess);
+    };
+  })(_cecClientProcess);
 };
 
 const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
@@ -442,426 +970,6 @@ const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
 };
 
 /**
- * Decode a CEC transmission to determine whether the AVR is turned on
- * @param {CecTransmission} cecTransmission A CEC transmission
- * @returns {undefined|boolean} Whether the AVR is turned on
- */
-const getIsAudioDeviceOn = (cecTransmission) => {
-  if (avrIsOnRegExp.test(cecTransmission)) {
-    return true;
-  }
-
-  if (avrIsStandByRegExp.test(cecTransmission)) {
-    return false;
-  }
-
-  if (avrTurnOnRegExp.test(cecTransmission)) {
-    return true;
-  }
-
-  if (avrStandByRegExp.test(cecTransmission)) {
-    return false;
-  }
-
-  return undefined;
-};
-
-/**
- * Get the music_directory value configured for MPD
- * @returns {Promise<string>} A promise of the music_directory value
- */
-const getPlaylistFoldersBasePath = () =>
-  new Promise((resolve, reject) => {
-    readFile(mpdConfPath, (err, data) => {
-      if (err) {
-        return reject(err);
-      }
-
-      const dataLines = data.toString().split('\n');
-
-      for (const dataLine of dataLines) {
-        if (playlistFoldersBasePathSettingRegExp.test(dataLine)) {
-          const [_, path] = dataLine.match(
-            playlistFoldersBasePathSettingRegExp
-          );
-          return resolve(path);
-        }
-      }
-
-      resolve(null);
-    });
-  });
-
-/**
- * Get the playlist_directory value configured for MPD
- * @returns {Promise<string>} A promise of the playlist_directory value
- */
-const getPlaylistFilesBasePath = () =>
-  new Promise((resolve, reject) => {
-    readFile(mpdConfPath, (err, data) => {
-      if (err) {
-        return reject(err);
-      }
-
-      const dataLines = data.toString().split('\n');
-
-      for (const dataLine of dataLines) {
-        if (playlistFilesBasePathSettingRegExp.test(dataLine)) {
-          const [_, path] = dataLine.match(playlistFilesBasePathSettingRegExp);
-          return resolve(path);
-        }
-      }
-
-      resolve(null);
-    });
-  });
-
-/**
- * Index song files within a playlist folder
- * @param {string} playlistFolderPath The path to a folder containing song files
- * @returns {Promise<string[]>} a list of song file paths relative to music_directory
- */
-const indexPlaylistFolder = (playlistFolderPath) => {
-  const playlistFolderName = basename(playlistFolderPath);
-
-  return defer(() => ls(playlistFolderPath))
-    .pipe(
-      switchMap(from), // emit the songFiles sequentially
-      concatMap((dirent) => getFileName(playlistFolderPath, dirent)), // inspect the songFiles sequentially
-      scan(
-        (acc, fileName) =>
-          fileName ? [...acc, join(playlistFolderName, fileName)] : acc,
-        []
-      ),
-      takeLast(1)
-    )
-    .toPromise();
-};
-
-/**
- * Update the playlist_directory to mirror folders found in music_directory
- * @returns {Promise<string[]>} The list of playlists
- */
-const updatePlaylists = () => {
-  const playlistFilesBasePath$ = defer(() => getPlaylistFilesBasePath()).pipe(
-    share()
-  );
-
-  const playlistFilePaths$ = playlistFilesBasePath$.pipe(
-    switchMap((playlistFilesBasePath) =>
-      ls(playlistFilesBasePath).then((dirents) =>
-        dirents
-          .filter(
-            (dirent) => dirent.isFile() && /\.m3u$/i.test(extname(dirent.name))
-          )
-          .map(({ name }) => join(playlistFilesBasePath, name))
-      )
-    ),
-    take(1)
-  );
-
-  const removePlaylistFiles$ = playlistFilePaths$.pipe(
-    switchMap(from), // emit the playlistFilePaths sequentially
-    concatMap(rm), // remove the playlistFilePaths sequentially
-    takeLast(1)
-  );
-
-  const playlistFoldersBasePath$ = defer(() =>
-    getPlaylistFoldersBasePath()
-  ).pipe(share());
-
-  const playlistFolders$ = playlistFoldersBasePath$.pipe(
-    switchMap((playlistFoldersBasePath) =>
-      ls(playlistFoldersBasePath).then((dirents) =>
-        dirents.filter((dirent) => dirent.isDirectory())
-      )
-    ),
-    take(1)
-  );
-
-  return concat(removePlaylistFiles$, playlistFolders$)
-    .pipe(
-      filter(Boolean),
-      switchMap(from), // emit the playlistFolderPaths sequentially
-      withLatestFrom(playlistFoldersBasePath$, playlistFilesBasePath$),
-      concatMap(([dirent, playlistFoldersBasePath, playlistFilesBasePath]) => {
-        const { name } = dirent;
-        const playlistFolderPath = join(playlistFoldersBasePath, name);
-        const playlistFilePath = join(playlistFilesBasePath, `${name}.m3u`);
-
-        return indexPlaylistFolder(playlistFolderPath)
-          .then((relativePaths) =>
-            redirect(relativePaths.join('\n'), playlistFilePath)
-          )
-          .then(() => name);
-      }), // index the playlistFolderPaths sequentially
-      scan((acc, playlistFileName) => [...acc, playlistFileName], []),
-      takeLast(1)
-    )
-    .toPromise();
-};
-
-/**
- * Reaction to AVR update
- * @param {ChildProcessWithoutNullStreams} cecClientProcess The API service for the AVR
- * @param {boolean} isAudioDeviceOn Whether the AVR is ON
- * @param {AppState} currentAppState The current application state
- * @returns {AppState} The next application state
- */
-const onAudioDeviceChange = (
-  cecClientProcess,
-  isAudioDeviceOn,
-  currentAppState
-) => {
-  // if there is no change in the power status of the AVR
-  if (isAudioDeviceOn === currentAppState.isAudioDeviceOn) {
-    // then no-op
-    return { ...currentAppState };
-  }
-
-  // if there is a change in the power status of the AVR, and
-  // if the AVR turns on
-  if (isAudioDeviceOn) {
-    // then update the application state
-    return {
-      ...currentAppState,
-      isAudioDeviceOn,
-      showPlaylist: !playOrPauseRegExp.test(currentAppState.state),
-    };
-  }
-
-  const { state } = currentAppState;
-
-  // if there is a change in the power status of the AVR, and
-  // if the AVR turns off,
-  // then reset application
-  playRegExp.test(state) && sendMpCommand('pause');
-  /**
-   * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
-   */
-  setTimeout(() => cecClientProcess.stdin.write('as'), 500);
-  return { ...currentAppState, isAudioDeviceOn, showPlaylist: true };
-};
-
-/**
- * Reaction to AVR remote control event
- * @param {CecTransmission} cecTransmission The remote control event
- * @param {AppState} currentAppState The current application state
- * @returns {AppState} The next application state
- */
-const onRemoteControlKeyup = (cecTransmission, currentAppState) => {
-  const { showPlaylist, playlists, playlistIdx } = currentAppState;
-
-  // if the OSD is displaying the playlists
-  if (showPlaylist) {
-    // then handle playlist navigation
-    if (!playlists.length) {
-      return { ...currentAppState };
-    }
-
-    /**
-     * @desc arrow up action
-     */
-    if (arrowUpKeyupRegExp.test(cecTransmission)) {
-      return {
-        ...currentAppState,
-        playlistIdx: (playlists.length + playlistIdx - 1) % playlists.length,
-      };
-    }
-
-    /**
-     * @desc arrow down action
-     */
-    if (arrowDownKeyupRegExp.test(cecTransmission)) {
-      return {
-        ...currentAppState,
-        playlistIdx: (playlists.length + playlistIdx + 1) % playlists.length,
-      };
-    }
-
-    /**
-     * @desc enter action
-     */
-    if (enterKeyupRegExp.test(cecTransmission)) {
-      void sendMpCommand('clear', `load "${playlists[playlistIdx]}"`, 'play');
-      return { ...currentAppState };
-    }
-
-    /**
-     * @desc close playlist
-     */
-    if (returnKeyupRegExp.test(cecTransmission)) {
-      return {
-        ...currentAppState,
-        showPlaylist: !playOrPauseRegExp.test(currentAppState.state),
-      };
-    }
-
-    return { ...currentAppState };
-  }
-
-  // if the OSD is displaying the player status,
-  // then handle player actions
-
-  /**
-   * @desc show playlist action
-   */
-  if (returnKeyupRegExp.test(cecTransmission)) {
-    return { ...currentAppState, showPlaylist: true };
-  }
-
-  /**
-   * @desc play action
-   */
-  if (playKeyupRegExp.test(cecTransmission)) {
-    /**
-     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
-     */
-    setTimeout(() => sendMpCommand('play'), 500);
-    return { ...currentAppState };
-  }
-
-  /**
-   * @desc pause action
-   */
-  if (pauseKeyupRegExp.test(cecTransmission)) {
-    /**
-     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
-     */
-    setTimeout(() => {
-      const { state } = currentAppState;
-      playRegExp.test(state) && sendMpCommand('pause');
-    }, 500);
-    return { ...currentAppState };
-  }
-
-  /**
-   * @desc stop action
-   */
-  if (stopKeyupRegExp.test(cecTransmission)) {
-    void sendMpCommand('stop');
-    return { ...currentAppState };
-  }
-
-  /**
-   * @desc next song action
-   */
-  if (nextKeyupRegExp.test(cecTransmission)) {
-    void sendMpCommand('next');
-    return { ...currentAppState };
-  }
-
-  /**
-   * @desc previous song action
-   */
-  if (previousKeyupRegExp.test(cecTransmission)) {
-    void sendMpCommand('previous');
-    return { ...currentAppState };
-  }
-
-  /**
-   * @desc toggle repeat action
-   */
-  if (redFunctionKeyupRegExp.test(cecTransmission)) {
-    /**
-     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
-     */
-    setTimeout(() => {
-      let { repeat } = currentAppState;
-      repeat = repeat === '1' ? '0' : '1';
-      void sendMpCommand(`repeat ${repeat}`);
-    }, 500);
-    return { ...currentAppState };
-  }
-
-  /**
-   * @desc toggle random action
-   */
-  if (greenFunctionKeyupRegExp.test(cecTransmission)) {
-    /**
-     * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
-     */
-    setTimeout(() => {
-      let { random } = currentAppState;
-      random = random === '1' ? '0' : '1';
-      void sendMpCommand(`random ${random}`);
-    }, 500);
-    return { ...currentAppState };
-  }
-
-  return { ...currentAppState };
-};
-
-/**
- * Reaction to Mp status change
- * @param {MpStatus} mpStatus The new MP status
- * @param {AppState} currentAppState The current application state
- * @returns {AppState} The next application state
- */
-const onMpStateChange = (
-  { state, song, playlistlength, elapsed, duration, repeat, random },
-  currentAppState
-) => {
-  if (playOrPauseRegExp.test(state)) {
-    return {
-      ...currentAppState,
-      showPlaylist: false,
-      state,
-      song,
-      playlistlength,
-      elapsed,
-      duration,
-      repeat,
-      random,
-    };
-  }
-
-  if (stopRegExp.test(state)) {
-    return {
-      ...currentAppState,
-      showPlaylist: true,
-      state,
-      song,
-      playlistlength,
-      elapsed,
-      duration,
-      repeat,
-      random,
-    };
-  }
-
-  return { ...currentAppState };
-};
-
-/**
- * Compare the current and the next application state to determine whether there is a change of state
- * @param {AppState} currentAppState The current application state
- * @param {AppState} nextAppState The next application state
- * @returns {boolean} Whether the application state is considered as changed
- */
-const isAppStateChanged = (currentAppState, nextAppState) => {
-  if (currentAppState.isAudioDeviceOn !== nextAppState.isAudioDeviceOn) {
-    return false;
-  }
-
-  if (currentAppState.showPlaylist !== nextAppState.showPlaylist) {
-    return false;
-  }
-
-  const { showPlaylist } = currentAppState;
-
-  if (showPlaylist) {
-    return currentAppState.playlistIdx === nextAppState.playlistIdx;
-  }
-
-  return (
-    currentAppState.state === nextAppState.state &&
-    currentAppState.repeat === nextAppState.repeat &&
-    currentAppState.random === nextAppState.random
-  );
-};
-
-/**
  * Get a stream of music player status changes
  * @param {ChildProcessWithoutNullStreams} mpClientProcess The API service for the music player
  * @returns {Observable<MpClientEvent>} A stream of music player status changes
@@ -870,7 +978,8 @@ const getMpClientEvent = (mpClientProcess) =>
   /** @type Observable<MpClientEvent> */ new Observable((subscriber) => {
     const source = 'mpClient';
     const onData = () =>
-      sendMpCommand('status')
+      new MpService(mpdHost, mpdPort)
+        .getStatus()
         .then((data) =>
           subscriber.next({
             source,
@@ -939,13 +1048,12 @@ const getCecClientEvent = (cecClientProcess) =>
   });
 
 module.exports = {
-  isAppStateChanged,
-  getMpClientEvent,
-  getCecClientEvent,
-  isAvrRequestDisplayName,
+  AvrService,
   AppStateService,
   AppStateReducer,
   AppStateRenderer,
   PromptRenderer,
   AppTerminator,
+  getMpClientEvent,
+  getCecClientEvent,
 };

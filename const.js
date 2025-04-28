@@ -1,5 +1,5 @@
 const getRxRegExp = (hex) =>
-  new RegExp(`^TRAFFIC:\\s*\\[\\s*(\\d+)\\s*\\]\\s*>>\\s*${hex}\\s*`);
+  new RegExp(`^TRAFFIC:\\s*\\[\\s*(\\d+)\\s*\\]\\s*>>\\s*${hex}\\s*`, 'i');
 
 module.exports = {
   avrRequestDisplayNameRegExp: getRxRegExp('51:46'),

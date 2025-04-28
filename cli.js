@@ -2,11 +2,6 @@
 
 'use strict';
 
-/**
- * @desc Notes
- * - The `on 5` command causes the AVR to stop emitting standby events. This application will not turn on the AVR programmatically
- */
-
 const { spawn } = require('child_process');
 const {
   Observable,
@@ -27,27 +22,29 @@ const {
 } = require('rxjs/operators');
 
 const {
-  isAppStateChanged,
-  getMpClientEvent,
-  getCecClientEvent,
-  isAvrRequestDisplayName,
+  AvrService,
   AppStateService,
   AppStateReducer,
   AppStateRenderer,
   PromptRenderer,
   AppTerminator,
+  getMpClientEvent,
+  getCecClientEvent,
 } = require('./utils');
 
 /**
- * @desc Scoped members
+ * @desc Scope members
  */
 const cecClientProcess = spawn('cec-client', ['-o', 'Loading...']); // read-write stream
 const mpClientProcess = spawn('mpc', ['idleloop']); // read-only stream
 
 const appStateService = new AppStateService(cecClientProcess);
+const avrService = new AvrService(cecClientProcess);
 const appTerminator = new AppTerminator();
 
-const initAppState$ = appStateService.getInitAppState().pipe(share());
+const initAppState$ = /** @type Observable<AppState> */ appStateService
+  .getInitAppState()
+  .pipe(share());
 
 const mpClientEvent$ = /** @type Observable<MpClientEvent> */ getMpClientEvent(
   mpClientProcess
@@ -75,13 +72,13 @@ const appStateChange$ = /** @type {Observable<AppState>} */ concat(
      */
     undefined
   ),
-  distinctUntilChanged(isAppStateChanged),
+  distinctUntilChanged(appStateService.isAppStateChanged),
   share()
 );
 
 const avrRequestDisplayName$ =
   /** @type {Observable<CecClientEvent>} */ cecClientEvent$.pipe(
-    filter(isAvrRequestDisplayName),
+    filter(avrService.isAvrRequestDisplayName),
     /**
      * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
      */
@@ -94,13 +91,14 @@ const initialAvrPowerStatusAndSubsequentPowerOn$ =
     avrRequestDisplayName$
   ).pipe(map(() => undefined));
 
-const postInitialAvrPowerStatusCecClientEvent$ = initAppState$.pipe(
-  switchMap(() => cecClientEvent$),
-  takeUntil(appTerminator.destroy$)
-);
+const postInitialAvrPowerStatusCecClientEvent$ =
+  /** @type Observable<CecClientEvent> */ initAppState$.pipe(
+    switchMap(() => cecClientEvent$),
+    takeUntil(appTerminator.destroy$)
+  );
 
 /**
- * @desc Subscriptions
+ * @desc OnInit
  */
 combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
   .pipe(
