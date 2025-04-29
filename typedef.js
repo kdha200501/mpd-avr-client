@@ -54,3 +54,7 @@
 /**
  * @typedef {[undefined|boolean]} AvrPowerStatus
  */
+
+/**
+ * @typedef {[undefined|string]} AvrVolumeStatus
+ */

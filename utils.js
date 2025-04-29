@@ -31,6 +31,7 @@ const {
   previousKeyupRegExp,
   redFunctionKeyupRegExp,
   greenFunctionKeyupRegExp,
+  volumeStatusRegExp,
   playlistFoldersBasePathSettingRegExp,
   playlistFilesBasePathSettingRegExp,
   playOrPauseRegExp,
@@ -44,6 +45,7 @@ const { root } = parse(process.cwd());
 const mpdConfPath = join(root, 'etc', 'mpd.conf');
 const mpdHost = 'localhost';
 const mpdPort = 6600;
+const audioVolumePreset = 38;
 
 const AvrService = function (_cecClientProcess) {
   return ((cecClientProcess) => {
@@ -89,6 +91,24 @@ const AvrService = function (_cecClientProcess) {
     };
 
     /**
+     * Decode the AVR audio volume status from CEC Client Event
+     * @param {CecClientEvent} cecClientEvent A CEC Client Event
+     * @returns {AvrVolumeStatus} The audio mute and volume in hex
+     */
+    const decodeAvrVolumeStatus = (cecClientEvent) => {
+      const { data: cecTransmission } = cecClientEvent;
+
+      if (!volumeStatusRegExp.test(cecTransmission)) {
+        return [undefined];
+      }
+
+      const [_, __, ___, volumeInHex] = cecTransmission
+        .toString()
+        .match(volumeStatusRegExp);
+      return [volumeInHex.replace(/:/g, '')];
+    };
+
+    /**
      * Determine whether a cec-client event is caused by the AVR requesting the host's name
      * @param {CecClientEvent} cecClientEvent A cec-client event
      * @returns {boolean} whether a cec-client event is caused by AVR requesting the host's name
@@ -102,10 +122,50 @@ const AvrService = function (_cecClientProcess) {
       return avrRequestDisplayNameRegExp.test(cecTransmission);
     };
 
+    /**
+     * Adjust the AVR audio volume
+     * @param {AvrVolumeStatus} avrVolumeStatus The current AVR volume status
+     * @returns {Observable<void>} An observable of no output
+     */
+    const adjustAudioVolume = ([avrMuteAndVolumeInHex]) => {
+      let { length } = avrMuteAndVolumeInHex;
+      const muteStatusMaskOverflow = 2 ** ((length / 2) * 8); // 2 ^ (number of bits)
+      const muteStatusMask = muteStatusMaskOverflow / 2; // the left-most bit is the mute status
+      const volumeStatusMask = muteStatusMask - 1; // invert the mask to get a mask for the remainder bits
+
+      const audioVolumeInDecimal =
+        parseInt(avrMuteAndVolumeInHex, 16) & volumeStatusMask;
+
+      const vector = Math.floor(audioVolumePreset - audioVolumeInDecimal);
+      const sign = Math.sign(vector);
+      length = Math.abs(vector) * 2;
+
+      /**
+       * @desc Unfortunately, there is no way to set volume to a particular value using CEC, as a result, audio volume is adjusted one unit at a time
+       */
+      return from(Array.from({ length }).map(() => Math.max(sign, 0))).pipe(
+        concatMap(
+          (increaseVolume) =>
+            new Promise((resolve) => {
+              cecClientProcess.stdin.write(
+                increaseVolume ? 'volup' : 'voldown'
+              );
+              /**
+               * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+               */
+              setTimeout(resolve, 500);
+            })
+        ),
+        takeLast(1)
+      );
+    };
+
     return {
       updateOsd,
       decodeAvrPowerStatus,
+      decodeAvrVolumeStatus,
       isAvrRequestDisplayName,
+      adjustAudioVolume,
     };
   })(_cecClientProcess);
 };
@@ -443,6 +503,51 @@ const AvrPowerStatusReducer = function (_cecClientProcess) {
 
       // if the request for AVR power status has not been made, and
       // if the AVR is not reaching out to identify the host,
+      // then no-op
+      return acc;
+    };
+  })(_cecClientProcess);
+};
+
+const AvrWakeUpVolumeStatusReducer = function (_cecClientProcess) {
+  return ((cecClientProcess) => {
+    const avrService = new AvrService(cecClientProcess);
+
+    return (acc, cecClientEvent) => {
+      const [isAudioDeviceOn] = avrService.decodeAvrPowerStatus(
+        /** @type {CecClientEvent} */ cecClientEvent
+      );
+
+      // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
+      if (isAudioDeviceOn === false) {
+        // then reset the reducer
+        return [];
+      }
+
+      // if the CEC transmission is not regarding audio turning off, and
+      // if the CEC transmission is regarding audio turning on
+      if (isAudioDeviceOn) {
+        // then request audio volume status
+        /**
+         * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+         */
+        setTimeout(() => cecClientProcess.stdin.write('tx 15:71'), 500);
+        return [undefined];
+      }
+
+      const { length } = /** @type AvrVolumeStatus */ acc;
+
+      // if the CEC transmission is not regarding audio turning off, and
+      // if the CEC transmission is not regarding audio turning on, and
+      // if a request for the audio volume status was made
+      if (length) {
+        // then decode the CEC transmission
+        return avrService.decodeAvrVolumeStatus(cecClientEvent);
+      }
+
+      // if the CEC transmission is not regarding audio turning off, and
+      // if the CEC transmission is not regarding audio turning on, and
+      // if a request for the audio volume status was not made,
       // then no-op
       return acc;
     };
@@ -1049,6 +1154,7 @@ const getCecClientEvent = (cecClientProcess) =>
 
 module.exports = {
   AvrService,
+  AvrWakeUpVolumeStatusReducer,
   AppStateService,
   AppStateReducer,
   AppStateRenderer,

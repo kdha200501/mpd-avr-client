@@ -23,6 +23,7 @@ const {
 
 const {
   AvrService,
+  AvrWakeUpVolumeStatusReducer,
   AppStateService,
   AppStateReducer,
   AppStateRenderer,
@@ -94,7 +95,8 @@ const initialAvrPowerStatusAndSubsequentPowerOn$ =
 const postInitialAvrPowerStatusCecClientEvent$ =
   /** @type Observable<CecClientEvent> */ initAppState$.pipe(
     switchMap(() => cecClientEvent$),
-    takeUntil(appTerminator.destroy$)
+    takeUntil(appTerminator.destroy$),
+    share()
   );
 
 /**
@@ -110,6 +112,20 @@ combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
 postInitialAvrPowerStatusCecClientEvent$
   .pipe(withLatestFrom(appStateChange$), takeUntil(appTerminator.destroy$))
   .subscribe(new PromptRenderer(cecClientProcess)); // update OSD according to prompt
+
+postInitialAvrPowerStatusCecClientEvent$
+  .pipe(
+    scan(
+      new AvrWakeUpVolumeStatusReducer(cecClientProcess),
+      /** @type AvrVolumeStatus */ []
+    ),
+    filter(([avrMuteAndVolumeInHex]) => avrMuteAndVolumeInHex !== undefined),
+    switchMap((avrVolumeStatus) =>
+      avrService.adjustAudioVolume(avrVolumeStatus)
+    ),
+    takeUntil(appTerminator.destroy$)
+  )
+  .subscribe(); // reset volume when the AVR wakes up
 
 cecClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
   // on next

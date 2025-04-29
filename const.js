@@ -20,6 +20,7 @@ module.exports = {
   redFunctionKeyupRegExp: getRxRegExp('51:8b:72'),
   greenFunctionKeyupRegExp: getRxRegExp('51:8b:73'),
   yellowFunctionKeyupRegExp: getRxRegExp('51:8b:74'),
+  volumeStatusRegExp: getRxRegExp('(51:7A:)((?:[0-9a-fA-F]{2}:?)+)'),
   playlistFoldersBasePathSettingRegExp: /^music_directory.*"([^"]+)"/, // path to a directory that contains song folders
   playlistFilesBasePathSettingRegExp: /^playlist_directory.*"([^"]+)"/, // path to a directory that contains .m3u playlist files
   playOrPauseRegExp: /(play|pause)/i,
