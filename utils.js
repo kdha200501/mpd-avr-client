@@ -1,19 +1,23 @@
 const { readdir, unlink, writeFile, readFile, stat } = require('fs');
-const { parse, join, extname, basename } = require('path');
+const { join, extname, basename } = require('path');
 const { connect } = require('net');
 const { from, concat, defer, Observable, Subject } = require('rxjs');
 const {
   take,
-  share,
   takeLast,
-  concatMap,
+  share,
+  shareReplay,
   switchMap,
+  concatMap,
   withLatestFrom,
   scan,
   filter,
 } = require('rxjs/operators');
 
 const {
+  mpdConfPath,
+  mpdHost,
+  mpdPortFallback,
   avrRequestDisplayNameRegExp,
   avrTurnOnRegExp,
   avrStandByRegExp,
@@ -31,6 +35,7 @@ const {
   redFunctionKeyupRegExp,
   greenFunctionKeyupRegExp,
   volumeStatusRegExp,
+  mpdPortSettingRegExp,
   playlistFoldersBasePathSettingRegExp,
   playlistFilesBasePathSettingRegExp,
   playOrPauseRegExp,
@@ -40,10 +45,6 @@ const {
 } = require('./const');
 
 const osdMaxLength = 14;
-const { root } = parse(process.cwd());
-const mpdConfPath = join(root, 'etc', 'mpd.conf');
-const mpdHost = 'localhost';
-const mpdPort = 6600;
 const audioVolumePreset = 38;
 
 const MpClient = function (_mpClientProcess) {
@@ -52,7 +53,7 @@ const MpClient = function (_mpClientProcess) {
       /** @type Observable<MpClientEvent> */ new Observable((subscriber) => {
         const source = 'mpClient';
         const onData = () =>
-          new MpService(mpdHost, mpdPort)
+          new MpService()
             .getStatus()
             .then((data) =>
               subscriber.next({
@@ -466,16 +467,42 @@ const PlaylistService = function () {
   })();
 };
 
-const MpService = function (mpdHost, mpdPort) {
-  return ((host, port) => {
+const MpService = function () {
+  return (() => {
+    const mpdPort$ = new Observable((subscriber) => {
+      readFile(mpdConfPath, (err, data) => {
+        if (err) {
+          return subscriber.error(err);
+        }
+
+        const dataLines = data.toString().split('\n');
+
+        for (const dataLine of dataLines) {
+          if (mpdPortSettingRegExp.test(dataLine)) {
+            const [_, port] = dataLine.match(mpdPortSettingRegExp);
+            subscriber.next(port);
+            subscriber.complete();
+            return;
+          }
+        }
+
+        subscriber.next(mpdPortFallback);
+        subscriber.complete();
+      });
+
+      return () => {};
+    }).pipe(shareReplay());
+
     /**
-     * Send command to MPD through nc
-     * @param {string|string[]} commands The commands
+     * Establish a nc connection with MPD and send commands
+     * @param {string} host The address to the MPD
+     * @param {string} port The port MPD runs at
+     * @param {string[]} commands The commands to be sent to MPD
      * @returns {Promise<MpStatus>} A promise of the music player status
      */
-    const sendMpCommand = (...commands) =>
+    const handShakeAndSendCommands = (host, port, commands) =>
       new Promise((resolve, reject) => {
-        const socket = connect({ host, port });
+        const socket = /** @type Socket */ connect({ host, port });
         let connectReturnCode;
 
         socket.on('data', (data) => {
@@ -526,6 +553,21 @@ const MpService = function (mpdHost, mpdPort) {
         });
       });
 
+    /**
+     * Send command to MPD through nc
+     * @param {string|string[]} commands The commands
+     * @returns {Promise<MpStatus>} A promise of the music player status
+     */
+    const sendMpCommand = (...commands) =>
+      mpdPort$
+        .pipe(
+          switchMap((mpdPort) =>
+            handShakeAndSendCommands(mpdHost, mpdPort, commands)
+          ),
+          take(1)
+        )
+        .toPromise();
+
     const getStatus = () => sendMpCommand('status');
 
     const update = () => sendMpCommand('update');
@@ -574,7 +616,7 @@ const MpService = function (mpdHost, mpdPort) {
       setRepeat,
       setRandom,
     };
-  })(mpdHost, mpdPort);
+  })();
 };
 
 const AvrPowerStatusReducer = function (_cecClientProcess) {
@@ -720,7 +762,7 @@ const AppStateService = function () {
 const AppStateReducer = function (_cecClientProcess) {
   return ((cecClientProcess) => {
     const avrService = new AvrService(cecClientProcess);
-    const mpService = new MpService(mpdHost, mpdPort);
+    const mpService = new MpService();
 
     /**
      * Reaction to AVR update

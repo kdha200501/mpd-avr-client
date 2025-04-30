@@ -38,9 +38,6 @@ const {
   AppTerminator,
 } = require('./utils');
 
-const mpdHost = 'localhost';
-const mpdPort = 6600;
-
 /**
  * @desc Protocol clients
  */
@@ -55,7 +52,7 @@ const mpClient = new MpClient(mpClientProcess);
  */
 const avrService = new AvrService(cecClientProcess);
 const playlistService = new PlaylistService();
-const mpService = new MpService(mpdHost, mpdPort);
+const mpService = new MpService();
 const appStateService = new AppStateService();
 const appTerminator = new AppTerminator();
 
