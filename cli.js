@@ -63,15 +63,15 @@ const appTerminator = new AppTerminator();
  * @desc Scope members
  */
 const mpClientEvent$ = mpClient.publisher();
-
 const cecClientEvent$ = cecClient.publisher();
+const destroy$ = appTerminator.publisher();
 
 const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
   scan(
     new AvrPowerStatusReducer(cecClientProcess),
     /** @type AvrPowerStatus */ []
   ),
-  filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
+  filter(avrService.isAvrPowerStatusValid),
   take(1)
 );
 
@@ -127,7 +127,7 @@ const initialAvrPowerStatusAndSubsequentPowerOn$ =
 const postInitialAvrPowerStatusCecClientEvent$ =
   /** @type Observable<CecClientEvent> */ initAppState$.pipe(
     switchMap(() => cecClientEvent$),
-    takeUntil(appTerminator.destroy$),
+    takeUntil(destroy$),
     share()
   );
 
@@ -137,12 +137,12 @@ const postInitialAvrPowerStatusCecClientEvent$ =
 combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
   .pipe(
     map(([appState]) => appState),
-    takeUntil(appTerminator.destroy$)
+    takeUntil(destroy$)
   )
   .subscribe(new AppStateRenderer(cecClientProcess)); // update OSD according to application state change
 
 postInitialAvrPowerStatusCecClientEvent$
-  .pipe(withLatestFrom(appStateChange$), takeUntil(appTerminator.destroy$))
+  .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
   .subscribe(new PromptRenderer(cecClientProcess)); // update OSD according to prompt
 
 postInitialAvrPowerStatusCecClientEvent$
@@ -151,15 +151,15 @@ postInitialAvrPowerStatusCecClientEvent$
       new AvrWakeUpVolumeStatusReducer(cecClientProcess),
       /** @type AvrVolumeStatus */ []
     ),
-    filter(([avrMuteAndVolumeInHex]) => avrMuteAndVolumeInHex !== undefined),
+    filter(avrService.isAvrVolumeStatsValid),
     switchMap((avrVolumeStatus) =>
       avrService.adjustAudioVolume(avrVolumeStatus)
     ),
-    takeUntil(appTerminator.destroy$)
+    takeUntil(destroy$)
   )
   .subscribe(); // reset volume when the AVR wakes up
 
-cecClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
+cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
   // on next
   next: (output) => {
     /**
@@ -173,7 +173,7 @@ cecClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
   error: () => appTerminator.onExit,
 }); // service watchdog
 
-mpClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
+mpClientEvent$.pipe(takeUntil(destroy$)).subscribe({
   // on next
   next: (output) => {
     /**

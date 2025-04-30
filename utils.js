@@ -174,6 +174,14 @@ const AvrService = function (_cecClientProcess) {
     };
 
     /**
+     * Determine whether an AVR Power Status is valid
+     * @param {AvrPowerStatus} avrPowerStatus An AVR Power Status
+     * @returns {boolean} the validity of an AVR Power Status
+     */
+    const isAvrPowerStatusValid = ([isAudioDeviceOn]) =>
+      isAudioDeviceOn !== undefined;
+
+    /**
      * Decode the AVR audio volume status from CEC Client Event
      * @param {CecClientEvent} cecClientEvent A CEC Client Event
      * @returns {AvrVolumeStatus} The audio mute and volume in hex
@@ -243,10 +251,20 @@ const AvrService = function (_cecClientProcess) {
       );
     };
 
+    /**
+     * Determine whether an AVR Volume Status is valid
+     * @param {AvrVolumeStatus} avrPowerStatus An AVR Volume Status
+     * @returns {boolean} the validity of an AVR Volume Status
+     */
+    const isAvrVolumeStatsValid = ([avrMuteAndVolumeInHex]) =>
+      avrMuteAndVolumeInHex !== undefined;
+
     return {
       updateOsd,
       decodeAvrPowerStatus,
+      isAvrPowerStatusValid,
       decodeAvrVolumeStatus,
+      isAvrVolumeStatsValid,
       isAvrRequestDisplayName,
       adjustAudioVolume,
     };
@@ -1105,6 +1123,8 @@ const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
   return ((cecClientProcess, mpClientProcess) => {
     const destroy$ = new Subject();
 
+    const publisher = () => destroy$;
+
     const onExit = (isKillSignal = false) => {
       cecClientProcess && cecClientProcess.kill();
       mpClientProcess && mpClientProcess.kill();
@@ -1119,7 +1139,7 @@ const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
       process.exit();
     };
 
-    return { destroy$, onExit };
+    return { publisher, onExit };
   })(_cecClientProcess, _mpClientProcess);
 };
 
