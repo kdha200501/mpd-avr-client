@@ -10,6 +10,7 @@ const {
   switchMap,
   concat,
   combineLatest,
+  forkJoin,
 } = require('rxjs');
 const {
   share,
@@ -19,42 +20,73 @@ const {
   scan,
   withLatestFrom,
   takeUntil,
+  take,
 } = require('rxjs/operators');
 
 const {
+  CecClient,
+  MpClient,
   AvrService,
+  AvrPowerStatusReducer,
   AvrWakeUpVolumeStatusReducer,
+  PlaylistService,
+  MpService,
   AppStateService,
   AppStateReducer,
   AppStateRenderer,
   PromptRenderer,
   AppTerminator,
-  getMpClientEvent,
-  getCecClientEvent,
 } = require('./utils');
+
+const mpdHost = 'localhost';
+const mpdPort = 6600;
+
+/**
+ * @desc Protocol clients
+ */
+const cecClientProcess = spawn('cec-client', ['-o', 'Loading...']); // read-write client
+const cecClient = new CecClient(cecClientProcess);
+
+const mpClientProcess = spawn('mpc', ['idleloop']); // read-only client
+const mpClient = new MpClient(mpClientProcess);
+
+/**
+ * @desc Services
+ */
+const avrService = new AvrService(cecClientProcess);
+const playlistService = new PlaylistService();
+const mpService = new MpService(mpdHost, mpdPort);
+const appStateService = new AppStateService();
+const appTerminator = new AppTerminator();
 
 /**
  * @desc Scope members
  */
-const cecClientProcess = spawn('cec-client', ['-o', 'Loading...']); // read-write stream
-const mpClientProcess = spawn('mpc', ['idleloop']); // read-only stream
+const mpClientEvent$ = mpClient.publisher();
 
-const appStateService = new AppStateService(cecClientProcess);
-const avrService = new AvrService(cecClientProcess);
-const appTerminator = new AppTerminator();
+const cecClientEvent$ = cecClient.publisher();
 
-const initAppState$ = /** @type Observable<AppState> */ appStateService
-  .getInitAppState()
-  .pipe(share());
+const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
+  scan(
+    new AvrPowerStatusReducer(cecClientProcess),
+    /** @type AvrPowerStatus */ []
+  ),
+  filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
+  take(1)
+);
 
-const mpClientEvent$ = /** @type Observable<MpClientEvent> */ getMpClientEvent(
-  mpClientProcess
-).pipe(share()); // music player service event listener
+const playlistsUpdatePromise = playlistService.updatePlaylists();
 
-const cecClientEvent$ =
-  /** @type Observable<CecClientEvent> */ getCecClientEvent(
-    cecClientProcess
-  ).pipe(share()); // cec service event listener
+const initAppState$ = /** @type {Observable<AppState>} */ forkJoin(
+  avrPowerStatus$,
+  playlistsUpdatePromise.then(() => mpService.update()),
+  playlistsUpdatePromise
+).pipe(
+  map(([avrPowerStatus, mpStatus, playlists]) =>
+    appStateService.createAppState(avrPowerStatus, mpStatus, playlists)
+  ),
+  share()
+);
 
 const appStateChange$ = /** @type {Observable<AppState>} */ concat(
   initAppState$,

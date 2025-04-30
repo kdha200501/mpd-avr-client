@@ -1,7 +1,7 @@
 const { readdir, unlink, writeFile, readFile, stat } = require('fs');
 const { parse, join, extname, basename } = require('path');
 const { connect } = require('net');
-const { from, concat, defer, Observable, forkJoin, Subject } = require('rxjs');
+const { from, concat, defer, Observable, Subject } = require('rxjs');
 const {
   take,
   share,
@@ -11,7 +11,6 @@ const {
   withLatestFrom,
   scan,
   filter,
-  map,
 } = require('rxjs/operators');
 
 const {
@@ -46,6 +45,90 @@ const mpdConfPath = join(root, 'etc', 'mpd.conf');
 const mpdHost = 'localhost';
 const mpdPort = 6600;
 const audioVolumePreset = 38;
+
+const MpClient = function (_mpClientProcess) {
+  return ((mpClientProcess) => {
+    const mpClientEvent$ =
+      /** @type Observable<MpClientEvent> */ new Observable((subscriber) => {
+        const source = 'mpClient';
+        const onData = () =>
+          new MpService(mpdHost, mpdPort)
+            .getStatus()
+            .then((data) =>
+              subscriber.next({
+                source,
+                data,
+              })
+            )
+            .catch((error) =>
+              subscriber.next({
+                source,
+                data: error,
+              })
+            );
+        const onClose = (exitCode) => {
+          console.log(`mpc exited with code ${exitCode}\n`);
+
+          if (exitCode === 0) {
+            return subscriber.complete();
+          }
+
+          subscriber.error(exitCode);
+        };
+        const onUnsubscribe = () => {};
+
+        // emit next event
+        mpClientProcess.stdout.on('data', onData);
+        mpClientProcess.stderr.on('data', onData);
+
+        // emit complete and error event
+        mpClientProcess.on('close', onClose);
+
+        return onUnsubscribe;
+      }).pipe(share());
+
+    const publisher = () => mpClientEvent$;
+
+    return { publisher };
+  })(_mpClientProcess);
+};
+
+const CecClient = function (_cecClientProcess) {
+  return ((cecClientProcess) => {
+    const cecClientEvent$ =
+      /** @type Observable<CecClientEvent>*/ new Observable((subscriber) => {
+        const source = 'cecClient';
+        const onData = (data) =>
+          subscriber.next({
+            source,
+            data,
+          });
+        const onClose = (exitCode) => {
+          console.log(`cec-client exited with code ${exitCode}\n`);
+
+          if (exitCode === 0) {
+            return subscriber.complete();
+          }
+
+          subscriber.error(exitCode);
+        };
+        const onUnsubscribe = () => {};
+
+        // emit next event
+        cecClientProcess.stdout.on('data', onData);
+        cecClientProcess.stderr.on('data', onData);
+
+        // emit complete and error event
+        cecClientProcess.on('close', onClose);
+
+        return onUnsubscribe;
+      }).pipe(share());
+
+    const publisher = () => cecClientEvent$;
+
+    return { publisher };
+  })(_cecClientProcess);
+};
 
 const AvrService = function (_cecClientProcess) {
   return ((cecClientProcess) => {
@@ -554,15 +637,8 @@ const AvrWakeUpVolumeStatusReducer = function (_cecClientProcess) {
   })(_cecClientProcess);
 };
 
-const AppStateService = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
-    const playlistService = new PlaylistService();
-    const mpService = new MpService(mpdHost, mpdPort);
-    const cecClientEvent$ =
-      /** @type Observable<CecClientEvent> */ getCecClientEvent(
-        cecClientProcess
-      ).pipe(share()); // cec service event listener
-
+const AppStateService = function () {
+  return (() => {
     /**
      * Create AppState object
      * @param {AvrPowerStatus} avrPowerStatus The AVR power status
@@ -589,33 +665,6 @@ const AppStateService = function (_cecClientProcess) {
         repeat,
         random,
       };
-    };
-
-    /**
-     * Get the initial application state
-     * @returns {Observable<AppState>} Initial application state
-     */
-    const getInitAppState = () => {
-      const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
-        scan(
-          new AvrPowerStatusReducer(cecClientProcess),
-          /** @type AvrPowerStatus */ []
-        ),
-        filter(([isAudioDeviceOn]) => isAudioDeviceOn !== undefined),
-        take(1)
-      );
-
-      const playlistsUpdatePromise = playlistService.updatePlaylists();
-
-      return /** @type {Observable<AppState>} */ forkJoin(
-        avrPowerStatus$,
-        playlistsUpdatePromise.then(() => mpService.update()),
-        playlistsUpdatePromise
-      ).pipe(
-        map(([avrPowerStatus, mpStatus, playlists]) =>
-          createAppState(avrPowerStatus, mpStatus, playlists)
-        )
-      );
     };
 
     /**
@@ -646,8 +695,8 @@ const AppStateService = function (_cecClientProcess) {
       );
     };
 
-    return { getInitAppState, isAppStateChanged };
-  })(_cecClientProcess);
+    return { createAppState, isAppStateChanged };
+  })();
 };
 
 const AppStateReducer = function (_cecClientProcess) {
@@ -1074,92 +1123,17 @@ const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
   })(_cecClientProcess, _mpClientProcess);
 };
 
-/**
- * Get a stream of music player status changes
- * @param {ChildProcessWithoutNullStreams} mpClientProcess The API service for the music player
- * @returns {Observable<MpClientEvent>} A stream of music player status changes
- */
-const getMpClientEvent = (mpClientProcess) =>
-  /** @type Observable<MpClientEvent> */ new Observable((subscriber) => {
-    const source = 'mpClient';
-    const onData = () =>
-      new MpService(mpdHost, mpdPort)
-        .getStatus()
-        .then((data) =>
-          subscriber.next({
-            source,
-            data,
-          })
-        )
-        .catch((error) =>
-          subscriber.next({
-            source,
-            data: error,
-          })
-        );
-    const onClose = (exitCode) => {
-      console.log(`mpc exited with code ${exitCode}\n`);
-
-      if (exitCode === 0) {
-        return subscriber.complete();
-      }
-
-      subscriber.error(exitCode);
-    };
-    const onUnsubscribe = () => {};
-
-    // emit next event
-    mpClientProcess.stdout.on('data', onData);
-    mpClientProcess.stderr.on('data', onData);
-
-    // emit complete and error event
-    mpClientProcess.on('close', onClose);
-
-    return onUnsubscribe;
-  });
-
-/**
- * Get a stream of AVR status changes
- * @param {ChildProcessWithoutNullStreams} cecClientProcess The API service for the AVR
- * @returns {Observable<CecClientEvent>} A stream of AVR status changes
- */
-const getCecClientEvent = (cecClientProcess) =>
-  /** @type Observable<CecClientEvent>*/ new Observable((subscriber) => {
-    const source = 'cecClient';
-    const onData = (data) =>
-      subscriber.next({
-        source,
-        data,
-      });
-    const onClose = (exitCode) => {
-      console.log(`cec-client exited with code ${exitCode}\n`);
-
-      if (exitCode === 0) {
-        return subscriber.complete();
-      }
-
-      subscriber.error(exitCode);
-    };
-    const onUnsubscribe = () => {};
-
-    // emit next event
-    cecClientProcess.stdout.on('data', onData);
-    cecClientProcess.stderr.on('data', onData);
-
-    // emit complete and error event
-    cecClientProcess.on('close', onClose);
-
-    return onUnsubscribe;
-  });
-
 module.exports = {
+  CecClient,
+  MpClient,
   AvrService,
+  AvrPowerStatusReducer,
   AvrWakeUpVolumeStatusReducer,
+  PlaylistService,
+  MpService,
   AppStateService,
   AppStateReducer,
   AppStateRenderer,
   PromptRenderer,
   AppTerminator,
-  getMpClientEvent,
-  getCecClientEvent,
 };
