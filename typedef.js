@@ -1,5 +1,12 @@
 /**
  * @typedef {{
+ * osdMaxLength: number
+ * audioVolumePreset: number
+ * }} AppConfig
+ */
+
+/**
+ * @typedef {{
  * isAudioDeviceOn: boolean,
  * showPlaylist: boolean,
  * playlistIdx: number,

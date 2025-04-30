@@ -83,3 +83,18 @@ $ sudo mpd-avr-client
 >
 > `mpd-avr-client` manages the `playlist_directory`, please backup the directory
 
+
+
+##### Options
+
+```
+  --version                Show version number                         [boolean]
+  -o, --osdMaxLength       Specify the maximum number of characters that can be
+                           put on the OSD                 [number] [default: 14]
+  -v, --audioVolumePreset  Optionally set the audio volume when the AVR wakes
+                           up. Conversion from gain level to volume level can
+                           vary depending on the model. For Yamaha RX-V385,
+                           -43dB is 38                                  [number]
+  -h, --help               Show help                                   [boolean]
+```
+

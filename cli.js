@@ -2,6 +2,25 @@
 
 'use strict';
 
+const { argv: appConfig } = require('yargs')
+  .usage('Usage: $0 [options]')
+  .alias('o', 'osdMaxLength')
+  .nargs('o', 1)
+  .number('o')
+  .default('o', 14)
+  .describe(
+    'o',
+    'Specify the maximum number of characters that can be put on the OSD'
+  )
+  .alias('v', 'audioVolumePreset')
+  .nargs('v', 1)
+  .number('v')
+  .describe(
+    'v',
+    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38'
+  )
+  .help('h')
+  .alias('h', 'help');
 const { spawn } = require('child_process');
 const {
   Observable,
@@ -50,7 +69,7 @@ const mpClient = new MpClient(mpClientProcess);
 /**
  * @desc Services
  */
-const avrService = new AvrService(cecClientProcess);
+const avrService = new AvrService(appConfig, cecClientProcess);
 const playlistService = new PlaylistService();
 const mpService = new MpService();
 const appStateService = new AppStateService();
@@ -65,7 +84,7 @@ const destroy$ = appTerminator.publisher();
 
 const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
   scan(
-    new AvrPowerStatusReducer(cecClientProcess),
+    new AvrPowerStatusReducer(appConfig, cecClientProcess),
     /** @type AvrPowerStatus */ []
   ),
   filter(avrService.isAvrPowerStatusValid),
@@ -95,7 +114,7 @@ const appStateChange$ = /** @type {Observable<AppState>} */ concat(
   merge(cecClientEvent$, mpClientEvent$)
 ).pipe(
   scan(
-    new AppStateReducer(cecClientProcess),
+    new AppStateReducer(appConfig, cecClientProcess),
     /**
      * @desc the application state placeholder
      * @type AppState
@@ -136,25 +155,29 @@ combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
     map(([appState]) => appState),
     takeUntil(destroy$)
   )
-  .subscribe(new AppStateRenderer(cecClientProcess)); // update OSD according to application state change
+  .subscribe(new AppStateRenderer(appConfig, cecClientProcess)); // update OSD according to application state change
 
 postInitialAvrPowerStatusCecClientEvent$
   .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
-  .subscribe(new PromptRenderer(cecClientProcess)); // update OSD according to prompt
+  .subscribe(new PromptRenderer(appConfig, cecClientProcess)); // update OSD according to prompt
 
-postInitialAvrPowerStatusCecClientEvent$
-  .pipe(
-    scan(
-      new AvrWakeUpVolumeStatusReducer(cecClientProcess),
-      /** @type AvrVolumeStatus */ []
-    ),
-    filter(avrService.isAvrVolumeStatsValid),
-    switchMap((avrVolumeStatus) =>
-      avrService.adjustAudioVolume(avrVolumeStatus)
-    ),
-    takeUntil(destroy$)
-  )
-  .subscribe(); // reset volume when the AVR wakes up
+const { audioVolumePreset } = /** @type AppConfig */ appConfig;
+
+if (audioVolumePreset !== undefined) {
+  postInitialAvrPowerStatusCecClientEvent$
+    .pipe(
+      scan(
+        new AvrWakeUpVolumeStatusReducer(appConfig, cecClientProcess),
+        /** @type AvrVolumeStatus */ []
+      ),
+      filter(avrService.isAvrVolumeStatsValid),
+      switchMap((avrVolumeStatus) =>
+        avrService.adjustAudioVolume(avrVolumeStatus)
+      ),
+      takeUntil(destroy$)
+    )
+    .subscribe(); // reset volume when the AVR wakes up
+}
 
 cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
   // on next

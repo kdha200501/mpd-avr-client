@@ -44,9 +44,6 @@ const {
   pauseRegExp,
 } = require('./const');
 
-const osdMaxLength = 14;
-const audioVolumePreset = 38;
-
 const MpClient = function (_mpClientProcess) {
   return ((mpClientProcess) => {
     const mpClientEvent$ =
@@ -131,8 +128,11 @@ const CecClient = function (_cecClientProcess) {
   })(_cecClientProcess);
 };
 
-const AvrService = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
+const AvrService = function (_appConfig, _cecClientProcess) {
+  return ((appConfig, cecClientProcess) => {
+    const { osdMaxLength, audioVolumePreset } =
+      /** @type AppConfig */ appConfig;
+
     const convertOsdToHex = (message) =>
       [...message.padEnd(osdMaxLength, ' ')]
         .slice(0, osdMaxLength)
@@ -269,7 +269,7 @@ const AvrService = function (_cecClientProcess) {
       isAvrRequestDisplayName,
       adjustAudioVolume,
     };
-  })(_cecClientProcess);
+  })(_appConfig, _cecClientProcess);
 };
 
 const PlaylistService = function () {
@@ -619,9 +619,9 @@ const MpService = function () {
   })();
 };
 
-const AvrPowerStatusReducer = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
-    const avrService = new AvrService(cecClientProcess);
+const AvrPowerStatusReducer = function (_appConfig, _cecClientProcess) {
+  return ((appConfig, cecClientProcess) => {
+    const avrService = new AvrService(appConfig, cecClientProcess);
 
     return (acc, _cecClientEvent) => {
       const { length } = /** @type AvrPowerStatus */ acc;
@@ -649,12 +649,12 @@ const AvrPowerStatusReducer = function (_cecClientProcess) {
       // then no-op
       return acc;
     };
-  })(_cecClientProcess);
+  })(_appConfig, _cecClientProcess);
 };
 
-const AvrWakeUpVolumeStatusReducer = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
-    const avrService = new AvrService(cecClientProcess);
+const AvrWakeUpVolumeStatusReducer = function (_appConfig, _cecClientProcess) {
+  return ((appConfig, cecClientProcess) => {
+    const avrService = new AvrService(appConfig, cecClientProcess);
 
     return (acc, cecClientEvent) => {
       const [isAudioDeviceOn] = avrService.decodeAvrPowerStatus(
@@ -694,7 +694,7 @@ const AvrWakeUpVolumeStatusReducer = function (_cecClientProcess) {
       // then no-op
       return acc;
     };
-  })(_cecClientProcess);
+  })(_appConfig, _cecClientProcess);
 };
 
 const AppStateService = function () {
@@ -759,9 +759,9 @@ const AppStateService = function () {
   })();
 };
 
-const AppStateReducer = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
-    const avrService = new AvrService(cecClientProcess);
+const AppStateReducer = function (_appConfig, _cecClientProcess) {
+  return ((appConfig, cecClientProcess) => {
+    const avrService = new AvrService(appConfig, cecClientProcess);
     const mpService = new MpService();
 
     /**
@@ -1060,12 +1060,12 @@ const AppStateReducer = function (_cecClientProcess) {
           return { ...appState };
       }
     };
-  })(_cecClientProcess);
+  })(_appConfig, _cecClientProcess);
 };
 
-const AppStateRenderer = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
-    const avrService = new AvrService(cecClientProcess);
+const AppStateRenderer = function (_appConfig, _cecClientProcess) {
+  return ((appConfig, cecClientProcess) => {
+    const avrService = new AvrService(appConfig, cecClientProcess);
 
     const rightShiftString = (str, shift) => {
       const { length } = str;
@@ -1113,12 +1113,12 @@ const AppStateRenderer = function (_cecClientProcess) {
       message = `[${rightShiftString(message, offset)}]`;
       return avrService.updateOsd(message);
     };
-  })(_cecClientProcess);
+  })(_appConfig, _cecClientProcess);
 };
 
-const PromptRenderer = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
-    const avrService = new AvrService(cecClientProcess);
+const PromptRenderer = function (_appConfig, _cecClientProcess) {
+  return ((appConfig, cecClientProcess) => {
+    const avrService = new AvrService(appConfig, cecClientProcess);
 
     return ([cecClientEvent, appState]) => {
       const { data: cecTransmission } =
@@ -1158,7 +1158,7 @@ const PromptRenderer = function (_cecClientProcess) {
         return avrService.updateOsd(message);
       }
     };
-  })(_cecClientProcess);
+  })(_appConfig, _cecClientProcess);
 };
 
 const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
