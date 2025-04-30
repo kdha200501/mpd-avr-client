@@ -2,11 +2,25 @@
 
 'use strict';
 
-/**
- * @desc Notes
- * - The `on 5` command causes the AVR to stop emitting standby events. This application will not turn on the AVR programmatically
- */
-
+const { argv: appConfig } = require('yargs')
+  .usage('Usage: $0 [options]')
+  .alias('o', 'osdMaxLength')
+  .nargs('o', 1)
+  .number('o')
+  .default('o', 14)
+  .describe(
+    'o',
+    'Specify the maximum number of characters that can be put on the OSD'
+  )
+  .alias('v', 'audioVolumePreset')
+  .nargs('v', 1)
+  .number('v')
+  .describe(
+    'v',
+    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38'
+  )
+  .help('h')
+  .alias('h', 'help');
 const { spawn } = require('child_process');
 const {
   Observable,
@@ -15,6 +29,7 @@ const {
   switchMap,
   concat,
   combineLatest,
+  forkJoin,
 } = require('rxjs');
 const {
   share,
@@ -24,13 +39,17 @@ const {
   scan,
   withLatestFrom,
   takeUntil,
+  take,
 } = require('rxjs/operators');
 
 const {
-  isAppStateChanged,
-  getMpClientEvent,
-  getCecClientEvent,
-  isAvrRequestDisplayName,
+  CecClient,
+  MpClient,
+  AvrService,
+  AvrPowerStatusReducer,
+  AvrWakeUpVolumeStatusReducer,
+  PlaylistService,
+  MpService,
   AppStateService,
   AppStateReducer,
   AppStateRenderer,
@@ -39,24 +58,51 @@ const {
 } = require('./utils');
 
 /**
- * @desc Scoped members
+ * @desc Protocol clients
  */
-const cecClientProcess = spawn('cec-client', ['-o', 'Loading...']); // read-write stream
-const mpClientProcess = spawn('mpc', ['idleloop']); // read-only stream
+const cecClientProcess = spawn('cec-client', ['-o', 'Loading...']); // read-write client
+const cecClient = new CecClient(cecClientProcess);
 
-const appStateService = new AppStateService(cecClientProcess);
+const mpClientProcess = spawn('mpc', ['idleloop']); // read-only client
+const mpClient = new MpClient(mpClientProcess);
+
+/**
+ * @desc Services
+ */
+const avrService = new AvrService(appConfig, cecClientProcess);
+const playlistService = new PlaylistService();
+const mpService = new MpService();
+const appStateService = new AppStateService();
 const appTerminator = new AppTerminator();
 
-const initAppState$ = appStateService.getInitAppState().pipe(share());
+/**
+ * @desc Scope members
+ */
+const mpClientEvent$ = mpClient.publisher();
+const cecClientEvent$ = cecClient.publisher();
+const destroy$ = appTerminator.publisher();
 
-const mpClientEvent$ = /** @type Observable<MpClientEvent> */ getMpClientEvent(
-  mpClientProcess
-).pipe(share()); // music player service event listener
+const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
+  scan(
+    new AvrPowerStatusReducer(appConfig, cecClientProcess),
+    /** @type AvrPowerStatus */ []
+  ),
+  filter(avrService.isAvrPowerStatusValid),
+  take(1)
+);
 
-const cecClientEvent$ =
-  /** @type Observable<CecClientEvent> */ getCecClientEvent(
-    cecClientProcess
-  ).pipe(share()); // cec service event listener
+const playlistsUpdatePromise = playlistService.updatePlaylists();
+
+const initAppState$ = /** @type {Observable<AppState>} */ forkJoin(
+  avrPowerStatus$,
+  playlistsUpdatePromise.then(() => mpService.update()),
+  playlistsUpdatePromise
+).pipe(
+  map(([avrPowerStatus, mpStatus, playlists]) =>
+    appStateService.createAppState(avrPowerStatus, mpStatus, playlists)
+  ),
+  share()
+);
 
 const appStateChange$ = /** @type {Observable<AppState>} */ concat(
   initAppState$,
@@ -68,20 +114,20 @@ const appStateChange$ = /** @type {Observable<AppState>} */ concat(
   merge(cecClientEvent$, mpClientEvent$)
 ).pipe(
   scan(
-    new AppStateReducer(cecClientProcess),
+    new AppStateReducer(appConfig, cecClientProcess),
     /**
      * @desc the application state placeholder
      * @type AppState
      */
     undefined
   ),
-  distinctUntilChanged(isAppStateChanged),
+  distinctUntilChanged(appStateService.isAppStateChanged),
   share()
 );
 
 const avrRequestDisplayName$ =
   /** @type {Observable<CecClientEvent>} */ cecClientEvent$.pipe(
-    filter(isAvrRequestDisplayName),
+    filter(avrService.isAvrRequestDisplayName),
     /**
      * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
      */
@@ -94,26 +140,46 @@ const initialAvrPowerStatusAndSubsequentPowerOn$ =
     avrRequestDisplayName$
   ).pipe(map(() => undefined));
 
-const postInitialAvrPowerStatusCecClientEvent$ = initAppState$.pipe(
-  switchMap(() => cecClientEvent$),
-  takeUntil(appTerminator.destroy$)
-);
+const postInitialAvrPowerStatusCecClientEvent$ =
+  /** @type Observable<CecClientEvent> */ initAppState$.pipe(
+    switchMap(() => cecClientEvent$),
+    takeUntil(destroy$),
+    share()
+  );
 
 /**
- * @desc Subscriptions
+ * @desc OnInit
  */
 combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
   .pipe(
     map(([appState]) => appState),
-    takeUntil(appTerminator.destroy$)
+    takeUntil(destroy$)
   )
-  .subscribe(new AppStateRenderer(cecClientProcess)); // update OSD according to application state change
+  .subscribe(new AppStateRenderer(appConfig, cecClientProcess)); // update OSD according to application state change
 
 postInitialAvrPowerStatusCecClientEvent$
-  .pipe(withLatestFrom(appStateChange$), takeUntil(appTerminator.destroy$))
-  .subscribe(new PromptRenderer(cecClientProcess)); // update OSD according to prompt
+  .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
+  .subscribe(new PromptRenderer(appConfig, cecClientProcess)); // update OSD according to prompt
 
-cecClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
+const { audioVolumePreset } = /** @type AppConfig */ appConfig;
+
+if (audioVolumePreset !== undefined) {
+  postInitialAvrPowerStatusCecClientEvent$
+    .pipe(
+      scan(
+        new AvrWakeUpVolumeStatusReducer(appConfig, cecClientProcess),
+        /** @type AvrVolumeStatus */ []
+      ),
+      filter(avrService.isAvrVolumeStatsValid),
+      switchMap((avrVolumeStatus) =>
+        avrService.adjustAudioVolume(avrVolumeStatus)
+      ),
+      takeUntil(destroy$)
+    )
+    .subscribe(); // reset volume when the AVR wakes up
+}
+
+cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
   // on next
   next: (output) => {
     /**
@@ -127,7 +193,7 @@ cecClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
   error: () => appTerminator.onExit,
 }); // service watchdog
 
-mpClientEvent$.pipe(takeUntil(appTerminator.destroy$)).subscribe({
+mpClientEvent$.pipe(takeUntil(destroy$)).subscribe({
   // on next
   next: (output) => {
     /**

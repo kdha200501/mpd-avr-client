@@ -1,5 +1,12 @@
 /**
  * @typedef {{
+ * osdMaxLength: number
+ * audioVolumePreset: number
+ * }} AppConfig
+ */
+
+/**
+ * @typedef {{
  * isAudioDeviceOn: boolean,
  * showPlaylist: boolean,
  * playlistIdx: number,
@@ -53,4 +60,8 @@
 
 /**
  * @typedef {[undefined|boolean]} AvrPowerStatus
+ */
+
+/**
+ * @typedef {[undefined|string]} AvrVolumeStatus
  */
