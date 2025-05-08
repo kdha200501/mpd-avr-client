@@ -2,27 +2,45 @@
 
 'use strict';
 
-const { argv: appConfig } = require('yargs')
-  .usage('Usage: $0 [options]')
-  .alias('o', 'osdMaxLength')
-  .nargs('o', 1)
-  .number('o')
-  .default('o', 14)
-  .describe(
-    'o',
-    'Specify the maximum number of characters that can be put on the OSD, defaults to 14'
-  )
-  .alias('v', 'audioVolumePreset')
-  .nargs('v', 1)
-  .number('v')
-  .describe(
-    'v',
-    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38'
-  )
-  .help('h')
-  .alias('h', 'help');
+const { spawn } = require('child_process');
+const { takeUntil } = require('rxjs/operators');
+const { of, forkJoin, switchMap } = require('rxjs');
 
-const { osdMaxLength, audioVolumePreset } = /** @type AppConfig */ appConfig;
+const { MpService, MpClient, AppTerminator } = require('./utils');
+const { playRegExp } = require('./const');
 
-console.log('osdMaxLength:', osdMaxLength);
-console.log('audioVolumePreset:', audioVolumePreset);
+/**
+ * @desc Protocol clients
+ */
+const mpClientProcess = spawn('mpc', ['idleloop']); // read-only client
+const mpClient = new MpClient(mpClientProcess);
+
+/**
+ * @desc Services
+ */
+const mpService = new MpService();
+const appTerminator = new AppTerminator();
+
+/**
+ * @desc Scope members
+ */
+const mpClientEvent$ = mpClient.publisher();
+const destroy$ = appTerminator.publisher();
+
+/**
+ * @desc OnInit
+ */
+of('blue keyup CEC event')
+  .pipe(
+    switchMap(() => mpService.getStatus()),
+    takeUntil(destroy$)
+  )
+  .subscribe((mpStatus) => {
+    const { state } = /** @type MpStatus */ mpStatus;
+    console.log('play', playRegExp.test(state));
+  });
+
+/**
+ * @desc OnDestroy
+ */
+process.on('SIGINT', () => appTerminator.onExit(true));

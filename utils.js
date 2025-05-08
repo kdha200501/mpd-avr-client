@@ -1,7 +1,7 @@
 const { readdir, unlink, writeFile, readFile, stat } = require('fs');
 const { join, extname, basename } = require('path');
 const { connect } = require('net');
-const { from, concat, defer, Observable, Subject } = require('rxjs');
+const { of, from, concat, defer, Observable, Subject } = require('rxjs');
 const {
   take,
   takeLast,
@@ -469,29 +469,7 @@ const PlaylistService = function () {
 
 const MpService = function () {
   return (() => {
-    const mpdPort$ = new Observable((subscriber) => {
-      readFile(mpdConfPath, (err, data) => {
-        if (err) {
-          return subscriber.error(err);
-        }
-
-        const dataLines = data.toString().split('\n');
-
-        for (const dataLine of dataLines) {
-          if (mpdPortSettingRegExp.test(dataLine)) {
-            const [_, port] = dataLine.match(mpdPortSettingRegExp);
-            subscriber.next(port);
-            subscriber.complete();
-            return;
-          }
-        }
-
-        subscriber.next(mpdPortFallback);
-        subscriber.complete();
-      });
-
-      return () => {};
-    }).pipe(shareReplay());
+    const mpdPort$ = of('6600').pipe(shareReplay());
 
     /**
      * Establish a nc connection with MPD and send commands

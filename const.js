@@ -2,7 +2,7 @@ const { parse, join } = require('path');
 
 const { root } = parse(process.cwd());
 const mpdConfPath = join(root, 'etc', 'mpd.conf');
-const mpdHost = 'localhost';
+const mpdHost = '192.168.0.34';
 const mpdPortFallback = '6600';
 
 const getRxRegExp = (hex) =>
