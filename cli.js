@@ -17,7 +17,28 @@ const { argv: appConfig } = require('yargs')
   .number('v')
   .describe(
     'v',
-    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38'
+    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38.'
+  )
+  .alias('t', 'handOverToTv')
+  .nargs('t', 1)
+  .string('t')
+  .describe(
+    't',
+    'Optionally provide the CEC command for the AVR to switch audio source to a TV that is connected via a non-HDMI input. Use the blue button to switch audio source.'
+  )
+  .alias('T', 'audioVolumePresetForTv')
+  .nargs('T', 1)
+  .number('T')
+  .describe(
+    'T',
+    'Optionally set the audio volume when the AVR switches audio source to TV'
+  )
+  .alias('b', 'braviaProfile')
+  .nargs('b', 1)
+  .string('b')
+  .describe(
+    'b',
+    'Optionally provide the path to an automation profile for Sony Bravia TV'
   )
   .help('h')
   .alias('h', 'help');
