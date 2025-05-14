@@ -88,13 +88,22 @@ $ sudo mpd-avr-client
 ##### Options
 
 ```
-  --version                Show version number                         [boolean]
-  -o, --osdMaxLength       Specify the maximum number of characters that can be
-                           put on the OSD                 [number] [default: 14]
-  -v, --audioVolumePreset  Optionally set the audio volume when the AVR wakes
-                           up. Conversion from gain level to volume level can
-                           vary depending on the model. For Yamaha RX-V385,
-                           -43dB is 38                                  [number]
-  -h, --help               Show help                                   [boolean]
+  --version                          Show version number               [boolean]
+  -o, --osdMaxLength                 Specify the maximum number of characters
+                                     that can be put on the OSD
+                                                          [number] [default: 14]
+  -v, --audioVolumePreset            Optionally set the audio volume when the
+                                     AVR wakes up. Conversion from gain level to
+                                     volume level can vary depending on the
+                                     model. For Yamaha RX-V385, -43dB is 38.
+                                                                        [number]
+  -t, --handOverAudioToTvCecCommand  Optionally provide the CEC command for the
+                                     AVR to switch audio source to a TV that is
+                                     connected via a non-HDMI input, e.g. `tx
+                                     15:44:69:09`. Use the blue button to switch
+                                     audio source.                      [string]
+  -T, --audioVolumePresetForTv       Optionally set the audio volume when the
+                                     AVR switches audio source to TV    [number]
+  -h, --help                         Show help                         [boolean]
 ```
 
