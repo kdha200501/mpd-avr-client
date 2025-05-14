@@ -1,7 +1,7 @@
 const { readdir, unlink, writeFile, readFile, stat } = require('fs');
 const { join, extname, basename } = require('path');
 const { connect } = require('net');
-const { from, concat, defer, Observable, Subject } = require('rxjs');
+const { of, from, concat, defer, Observable, Subject } = require('rxjs');
 const {
   take,
   takeLast,
@@ -12,6 +12,7 @@ const {
   withLatestFrom,
   scan,
   filter,
+  delay,
 } = require('rxjs/operators');
 
 const {
@@ -34,6 +35,7 @@ const {
   previousKeyupRegExp,
   redFunctionKeyupRegExp,
   greenFunctionKeyupRegExp,
+  blueFunctionKeyupRegExp,
   volumeStatusRegExp,
   mpdPortSettingRegExp,
   playlistFoldersBasePathSettingRegExp,
@@ -140,12 +142,29 @@ const AvrService = function (_appConfig, _cecClientProcess) {
         .join(':');
 
     /**
+     * Run a CEC command
+     * @param {string} command A CEC command
+     * @returns {void} No output
+     */
+    const runCommand = (command) => void cecClientProcess.stdin.write(command);
+
+    const requestPowerStatus = () => runCommand('pow 5');
+
+    /**
      * Display a message on the AVR OSD
      * @param {string} message A message
      * @returns {void} No output
      */
     const updateOsd = (message) =>
-      void cecClientProcess.stdin.write(`tx 15:47:${convertOsdToHex(message)}`);
+      runCommand(`tx 15:47:${convertOsdToHex(message)}`);
+
+    const increaseGainByHalfDecibel = () => runCommand('volup');
+
+    const decreaseGainByHalfDecibel = () => runCommand('voldown');
+
+    const requestAudioVolume = () => runCommand('tx 15:71');
+
+    const setActiveSource = () => runCommand('as');
 
     /**
      * Decode the AVR power status from a CEC Client Event
@@ -217,9 +236,13 @@ const AvrService = function (_appConfig, _cecClientProcess) {
     /**
      * Adjust the AVR audio volume
      * @param {AvrVolumeStatus} avrVolumeStatus The current AVR volume status
+     * @param {number} [audioVolumeOverride] Optionally override the audio volume preset
      * @returns {Observable<void>} An observable of no output
      */
-    const adjustAudioVolume = ([avrMuteAndVolumeInHex]) => {
+    const adjustAudioVolume = (
+      [avrMuteAndVolumeInHex],
+      audioVolumeOverride = audioVolumePreset
+    ) => {
       let { length } = avrMuteAndVolumeInHex;
       const muteStatusMaskOverflow = 2 ** ((length / 2) * 8); // 2 ^ (number of bits)
       const muteStatusMask = muteStatusMaskOverflow / 2; // the left-most bit is the mute status
@@ -228,9 +251,9 @@ const AvrService = function (_appConfig, _cecClientProcess) {
       const audioVolumeInDecimal =
         parseInt(avrMuteAndVolumeInHex, 16) & volumeStatusMask;
 
-      const vector = Math.floor(audioVolumePreset - audioVolumeInDecimal);
+      const vector = Math.floor(audioVolumeOverride - audioVolumeInDecimal);
       const sign = Math.sign(vector);
-      length = Math.abs(vector) * 2;
+      length = Math.abs(vector) * 2; // note, gain can be adjusted 0.5 Decibel at a time
 
       /**
        * @desc Unfortunately, there is no way to set volume to a particular value using CEC, as a result, audio volume is adjusted one unit at a time
@@ -239,9 +262,9 @@ const AvrService = function (_appConfig, _cecClientProcess) {
         concatMap(
           (increaseVolume) =>
             new Promise((resolve) => {
-              cecClientProcess.stdin.write(
-                increaseVolume ? 'volup' : 'voldown'
-              );
+              increaseVolume
+                ? increaseGainByHalfDecibel()
+                : decreaseGainByHalfDecibel();
               /**
                * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
                */
@@ -261,7 +284,13 @@ const AvrService = function (_appConfig, _cecClientProcess) {
       avrMuteAndVolumeInHex !== undefined;
 
     return {
+      runCommand,
+      requestPowerStatus,
       updateOsd,
+      increaseGainByHalfDecibel,
+      decreaseGainByHalfDecibel,
+      requestAudioVolume,
+      setActiveSource,
       decodeAvrPowerStatus,
       isAvrPowerStatusValid,
       decodeAvrVolumeStatus,
@@ -572,7 +601,7 @@ const MpService = function () {
 
     const update = () => sendMpCommand('update');
 
-    const pause = () => sendMpCommand('pause');
+    const pause = () => sendMpCommand('pause 1');
 
     /**
      * Play a particular playlist
@@ -582,9 +611,9 @@ const MpService = function () {
     const playPlaylist = (playlist) =>
       sendMpCommand('clear', `load "${playlist}"`, 'play');
 
-    const resume = () => sendMpCommand('play');
+    const resume = () => sendMpCommand('pause 0');
 
-    const stop = () => sendMpCommand('stop');
+    const stop = () => sendMpCommand('stop'); // note, 'stop' wipes the playback progress within the playlist
 
     const nextSong = () => sendMpCommand('next');
 
@@ -640,7 +669,7 @@ const AvrPowerStatusReducer = function (_appConfig, _cecClientProcess) {
         /**
          * @desc when the host jumps on the HDMI bus, the audio device reaches out to the host and asks for identification
          */
-        cecClientProcess.stdin.write('pow 5');
+        avrService.requestPowerStatus();
         return [undefined];
       }
 
@@ -674,7 +703,7 @@ const AvrWakeUpVolumeStatusReducer = function (_appConfig, _cecClientProcess) {
         /**
          * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
          */
-        setTimeout(() => cecClientProcess.stdin.write('tx 15:71'), 500);
+        setTimeout(() => avrService.requestAudioVolume(), 500);
         return [undefined];
       }
 
@@ -693,6 +722,150 @@ const AvrWakeUpVolumeStatusReducer = function (_appConfig, _cecClientProcess) {
       // if a request for the audio volume status was not made,
       // then no-op
       return acc;
+    };
+  })(_appConfig, _cecClientProcess);
+};
+
+const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
+  return ((appConfig, cecClientProcess) => {
+    const { handOverAudioToTvCecCommand, audioVolumePresetForTv } =
+      /** @type AppConfig */ appConfig;
+
+    const avrService = new AvrService(appConfig, cecClientProcess);
+    const mpService = new MpService();
+
+    return (acc, [event, appState]) => {
+      const [avrVolumeStatus, [fromMpStatusState, toMpStatusState]] =
+        /** @type {[AvrVolumeStatus, MpStatusStateTransition]} */ acc;
+      const { source } = /** @type {CecClientEvent|MpClientEvent} */ event;
+
+      switch (source) {
+        case 'cecClient':
+          // if the reducer is waiting for MP to respond to playback pause request
+          if (fromMpStatusState && !toMpStatusState) {
+            // then wait for MP to confirm its next state, see case 'mpClient'
+            return acc;
+          }
+
+          const cecClientEvent = /** @type CecClientEvent */ event;
+          const { data: cecTransmission } = cecClientEvent;
+
+          // if the reducer is not waiting for MP to respond to playback pause request, and
+          // if the reducer is not waiting for the AVR to respond to audio volume request
+          if (
+            !avrVolumeStatus.length ||
+            avrService.isAvrVolumeStatsValid(avrVolumeStatus)
+          ) {
+            // if the CEC transmission is regarding audio source switching
+            if (blueFunctionKeyupRegExp.test(cecTransmission)) {
+              // then ask AVR for audio volume (to initiate the audio source switching process)
+              avrService.requestAudioVolume();
+              return [[undefined], [undefined, undefined]];
+            }
+
+            // if the CEC transmission is not regarding audio source switching,
+            // then reset the reducer
+            return [[], [undefined, undefined]];
+          }
+
+          const _avrVolumeStatus =
+            avrService.decodeAvrVolumeStatus(cecClientEvent);
+
+          // if the reducer is not waiting for MP to respond to playback pause request, and
+          // if the reducer is waiting for the AVR to respond to audio volume request, and
+          // if the CEC transmission is not regarding AVR responding to audio volume request
+          if (!avrService.isAvrVolumeStatsValid(_avrVolumeStatus)) {
+            // then no-op
+            return acc;
+          }
+
+          const { state } = /** @type AppState */ appState;
+
+          // if the reducer is not waiting for MP to respond to playback pause request, and
+          // if the reducer is waiting for the AVR to respond to audio volume request, and
+          // if the CEC transmission is regarding AVR responding to audio volume request, and
+          // if MP is playing
+          if (playRegExp.test(state)) {
+            // then ask MP to pause
+            avrService.updateOsd('pause');
+            /**
+             * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+             */
+            setTimeout(() => mpService.pause(), 500);
+            return [_avrVolumeStatus, [state, undefined]];
+          }
+
+          // if the reducer is not waiting for MP to respond to playback pause request, and
+          // if the reducer is waiting for the AVR to respond to audio volume request, and
+          // if the CEC transmission is regarding AVR responding to audio volume request, and
+          // if MP is not playing,
+          // then do not ask MP to pause and switch audio source directly
+          avrService.runCommand(handOverAudioToTvCecCommand);
+          audioVolumePresetForTv !== undefined &&
+            of(audioVolumePresetForTv)
+              .pipe(
+                /**
+                 * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+                 */
+                delay(500),
+                switchMap(() =>
+                  avrService.adjustAudioVolume(
+                    _avrVolumeStatus,
+                    audioVolumePresetForTv
+                  )
+                ),
+                take(1)
+              )
+              .subscribe();
+          return [_avrVolumeStatus, [state, state]];
+
+        case 'mpClient':
+          // if the reducer is not waiting for MP to respond to playback pause request
+          if (!fromMpStatusState || toMpStatusState) {
+            // then reset the reducer
+            return [[], [undefined, undefined]];
+          }
+
+          const { data: mpStatus } = /** @type MpClientEvent */ event;
+
+          // if the reducer is waiting for MP to respond to playback pause request, and
+          // if MP decides to keep playing
+          if (playRegExp.test(mpStatus.state)) {
+            // then reset the reducer
+            return [[], [undefined, undefined]];
+          }
+
+          // if the reducer is waiting for MP to respond to playback pause request, and
+          // if MP confirms playback is paused,
+          // then switch the audio source
+          /**
+           * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+           */
+          setTimeout(
+            () => avrService.runCommand(handOverAudioToTvCecCommand),
+            500
+          );
+          audioVolumePresetForTv !== undefined &&
+            of(audioVolumePresetForTv)
+              .pipe(
+                /**
+                 * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+                 */
+                delay(1000),
+                switchMap(() =>
+                  avrService.adjustAudioVolume(
+                    avrVolumeStatus,
+                    audioVolumePresetForTv
+                  )
+                ),
+                take(1)
+              )
+              .subscribe();
+          return [avrVolumeStatus, [fromMpStatusState, mpStatus.state]];
+
+        default:
+          return [[], [undefined, undefined]];
+      }
     };
   })(_appConfig, _cecClientProcess);
 };
@@ -765,7 +938,7 @@ const AppStateReducer = function (_appConfig, _cecClientProcess) {
     const mpService = new MpService();
 
     /**
-     * Reaction to AVR update
+     * Reaction to AVR power status change
      * @param {ChildProcessWithoutNullStreams} cecClientProcess The API service for the AVR
      * @param {boolean} isAudioDeviceOn Whether the AVR is ON
      * @param {AppState} currentAppState The current application state
@@ -797,16 +970,14 @@ const AppStateReducer = function (_appConfig, _cecClientProcess) {
         };
       }
 
-      const { state } = currentAppState;
-
       // if there is a change in the power status of the AVR, and
       // if the AVR turns off,
       // then reset application
-      playRegExp.test(state) && mpService.pause();
+      mpService.pause();
       /**
        * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
        */
-      setTimeout(() => cecClientProcess.stdin.write('as'), 500);
+      setTimeout(() => avrService.setActiveSource(), 500);
       return { ...currentAppState, isAudioDeviceOn, showPlaylist: true };
     };
 
@@ -938,10 +1109,7 @@ const AppStateReducer = function (_appConfig, _cecClientProcess) {
         /**
          * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
          */
-        setTimeout(() => {
-          const { state } = currentAppState;
-          playRegExp.test(state) && mpService.pause();
-        }, 500);
+        setTimeout(() => mpService.pause(), 500);
         return { ...currentAppState };
       }
 
@@ -1191,6 +1359,7 @@ module.exports = {
   AvrService,
   AvrPowerStatusReducer,
   AvrWakeUpVolumeStatusReducer,
+  AvrAudioSourceSwitchReducer,
   PlaylistService,
   MpService,
   AppStateService,

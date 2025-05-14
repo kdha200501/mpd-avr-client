@@ -2,6 +2,8 @@
  * @typedef {{
  * osdMaxLength: number
  * audioVolumePreset: number
+ * handOverAudioToTvCecCommand: string
+ * audioVolumePresetForTv: number
  * }} AppConfig
  */
 
@@ -64,4 +66,8 @@
 
 /**
  * @typedef {[undefined|string]} AvrVolumeStatus
+ */
+
+/**
+ * @typedef {[undefined|string, undefined|string]} MpStatusStateTransition
  */

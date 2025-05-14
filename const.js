@@ -26,10 +26,10 @@ module.exports = {
   stopKeyupRegExp: getRxRegExp('51:8b:45'),
   nextKeyupRegExp: getRxRegExp('51:8b:4b'),
   previousKeyupRegExp: getRxRegExp('51:8b:4c'),
-  blueFunctionKeyupRegExp: getRxRegExp('51:8b:71'),
   redFunctionKeyupRegExp: getRxRegExp('51:8b:72'),
   greenFunctionKeyupRegExp: getRxRegExp('51:8b:73'),
   yellowFunctionKeyupRegExp: getRxRegExp('51:8b:74'),
+  blueFunctionKeyupRegExp: getRxRegExp('51:8b:71'),
   volumeStatusRegExp: getRxRegExp('(51:7A:)((?:[0-9a-fA-F]{2}:?)+)'),
   mpdPortSettingRegExp: /^port.*"([^"]+)"/, // MPD port
   playlistFoldersBasePathSettingRegExp: /^music_directory.*"([^"]+)"/, // path to a directory that contains song folders

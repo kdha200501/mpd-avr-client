@@ -17,7 +17,21 @@ const { argv: appConfig } = require('yargs')
   .number('v')
   .describe(
     'v',
-    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38'
+    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38.'
+  )
+  .alias('t', 'handOverAudioToTvCecCommand')
+  .nargs('t', 1)
+  .string('t')
+  .describe(
+    't',
+    'Optionally provide the CEC command for the AVR to switch audio source to a TV that is connected via a non-HDMI input, e.g. `tx 15:44:69:09`. Use the blue button to switch audio source.'
+  )
+  .alias('T', 'audioVolumePresetForTv')
+  .nargs('T', 1)
+  .number('T')
+  .describe(
+    'T',
+    'Optionally set the audio volume when the AVR switches audio source to TV'
   )
   .help('h')
   .alias('h', 'help');
@@ -48,6 +62,7 @@ const {
   AvrService,
   AvrPowerStatusReducer,
   AvrWakeUpVolumeStatusReducer,
+  AvrAudioSourceSwitchReducer,
   PlaylistService,
   MpService,
   AppStateService,
@@ -147,6 +162,13 @@ const postInitialAvrPowerStatusCecClientEvent$ =
     share()
   );
 
+const postInitialAvrPowerStatusMpClientEvent$ =
+  /** @type Observable<MpClientEvent> */ initAppState$.pipe(
+    switchMap(() => mpClientEvent$),
+    takeUntil(destroy$),
+    share()
+  );
+
 /**
  * @desc OnInit
  */
@@ -161,7 +183,8 @@ postInitialAvrPowerStatusCecClientEvent$
   .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
   .subscribe(new PromptRenderer(appConfig, cecClientProcess)); // update OSD according to prompt
 
-const { audioVolumePreset } = /** @type AppConfig */ appConfig;
+const { audioVolumePreset, handOverAudioToTvCecCommand } =
+  /** @type AppConfig */ appConfig;
 
 if (audioVolumePreset !== undefined) {
   postInitialAvrPowerStatusCecClientEvent$
@@ -177,6 +200,23 @@ if (audioVolumePreset !== undefined) {
       takeUntil(destroy$)
     )
     .subscribe(); // reset volume when the AVR wakes up
+}
+
+if (handOverAudioToTvCecCommand) {
+  merge(
+    postInitialAvrPowerStatusCecClientEvent$,
+    postInitialAvrPowerStatusMpClientEvent$
+  )
+    .pipe(
+      withLatestFrom(appStateChange$),
+      scan(
+        new AvrAudioSourceSwitchReducer(appConfig, cecClientProcess),
+        /** @type {[AvrVolumeStatus, MpStatusStateTransition]} */
+        [[], [undefined, undefined]]
+      ),
+      takeUntil(destroy$)
+    )
+    .subscribe(); // switch audio source
 }
 
 cecClientEvent$.pipe(takeUntil(destroy$)).subscribe({
