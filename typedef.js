@@ -1,52 +1,49 @@
 /**
- * @typedef {{
- * osdMaxLength: number
- * audioVolumePreset: number
- * handOverAudioToTvCecCommand: string
- * audioVolumePresetForTv: number
- * }} AppConfig
+ * @typedef {Object} AppConfig
+ * @property {number} osdMaxLength
+ * @property {number} audioVolumePreset
+ * @property {string} handOverAudioToTvCecCommand
+ * @property {number} audioVolumePresetForTv
+ * @property {TvLaunchProfileType} braviaLaunchProfile
  */
 
 /**
- * @typedef {{
- * isAudioDeviceOn: boolean,
- * showPlaylist: boolean,
- * playlistIdx: number,
- * playlists: string[],
- * state: string,
- * song: string,
- * playlistlength: string,
- * elapsed: string,
- * duration: string,
- * repeat: string,
- * random: string,
- * }} AppState
+ * @typedef {Object} AppState
+ * @property {boolean} isAudioDeviceOn
+ * @property {boolean} showPlaylist
+ * @property {number} playlistIdx
+ * @property {string[]} playlists
+ * @property {string} state
+ * @property {string} song
+ * @property {string} playlistlength
+ * @property {string} elapsed
+ * @property {string} duration
+ * @property {string} repeat
+ * @property {string} random
  */
 
 /**
- * @typedef {{
- * repeat: string,
- * random: string,
- * single: string,
- * consume: string,
- * playlist: string,
- * playlistlength: string,
- * elapsed: string,
- * duration: string,
- * mixrampdb: string,
- * state: string,
- * song: string,
- * songid: string,
- * nextsong: string,
- * nextsongid: string,
- * }} MpStatus
+ * @typedef {Object} MpStatus
+ * @property {string} repeat
+ * @property {string} random
+ * @property {string} single
+ * @property {string} consume
+ * @property {string} playlist
+ * @property {string} playlistlength
+ * @property {string} elapsed
+ * @property {string} duration
+ * @property {string} mixrampdb
+ * @property {string} state
+ * @property {string} song
+ * @property {string} songid
+ * @property {string} nextsong
+ * @property {string} nextsongid
  */
 
 /**
- * @typedef {{
- * source: 'mpClient',
- * data: MpStatus,
- * }} MpClientEvent
+ * @typedef {Object} MpClientEvent
+ * @property {'mpClient'} source
+ * @property {MpStatus} data
  */
 
 /**
@@ -54,10 +51,9 @@
  */
 
 /**
- * @typedef {{
- * source: 'cecClient',
- * data: CecTransmission,
- * }} CecClientEvent
+ * @typedef {Object} CecClientEvent
+ * @property {'cecClient'} source
+ * @property {CecTransmission} data
  */
 
 /**
@@ -70,4 +66,49 @@
 
 /**
  * @typedef {[undefined|string, undefined|string]} MpStatusStateTransition
+ */
+
+/**
+ * @typedef {Dict<unknown>} HttpObject
+ */
+
+/**
+ * @typedef {'BRAVIA'} TvType
+ */
+
+/**
+ * @typedef {'braviaLaunchProfile'} TvLaunchProfileType
+ */
+
+/**
+ * @typedef {Object} TvLaunchProfile
+ * @property {string} hostname
+ * @property {string} appTitle
+ */
+
+/**
+ * @typedef {TvLaunchProfile} BraviaLaunchProfile
+ * @property {string} preSharedKey The value under Settings -> IP control -> Pre-Shared Key
+ */
+
+/**
+ * @typedef {Object} BraviaPayload
+ * @property {string} method
+ * @property {HttpObject[]} params
+ * @property {number} id
+ * @property {string} version
+ */
+
+/**
+ * @typedef {Object} BraviaResponse
+ * @property {HttpObject[]} result
+ * @property {string[]} error
+ * @property {number} id
+ */
+
+/**
+ * @typedef {Object} BraviaApp
+ * @property {string} title
+ * @property {string} uri
+ * @property {string} icon
  */
