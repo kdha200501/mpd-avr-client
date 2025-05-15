@@ -38,7 +38,7 @@ const { argv: appConfig } = require('yargs')
   .string('b')
   .describe(
     'b',
-    'Optionally provide the path to a launch profile for Sony Bravia TV'
+    'Optionally provide the path to a launch profile for Sony Bravia TV. This powers on TV when the AVR switches audio source to a TV.'
   )
   .help('h')
   .alias('h', 'help');

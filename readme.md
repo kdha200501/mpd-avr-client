@@ -13,7 +13,7 @@ The aim of the `mpd-avr-client` project is to explore the practicality of using 
 
 
 
-The objectives of the project is to use
+The objectives of the project are to use
 
 - the *AVR* infrared remote control as input
 - the *AVR* built-in display to feature *MPD* status and playlist selection
@@ -105,7 +105,9 @@ $ sudo mpd-avr-client
   -T, --audioVolumePresetForTv       Optionally set the audio volume when the
                                      AVR switches audio source to TV    [number]
   -b, --braviaLaunchProfile          Optionally provide the path to a launch
-                                     profile for Sony Bravia TV         [string]
+                                     profile for Sony Bravia TV. This powers on
+                                     TV when the AVR switches audio source to a
+                                     TV.                                [string]
   -h, --help                         Show help                         [boolean]
 ```
 
@@ -115,13 +117,18 @@ $ sudo mpd-avr-client
 
 # Smart TV integration
 
-The `mpd-avr-client` project is setup to avoid having *TV*(s) connected to *HDMI* ports of the *AVR*. This setup cuts off communication between the *AVR* and the *TV* to avoid unwanted propitiatory behaviours that are baked into these devices and give rise to unpleasant surprises. However, some traits bring convenience and those shall be re-implemented.
+The `mpd-avr-client` project is setup to avoid having *TV*(s) connected to *HDMI* ports of the *AVR*. This setup cuts off communication between the *AVR* and the *TV* to avoid unwanted propitiatory behaviours that are baked into these devices and give rise to unpleasant surprises at runtime. However, some traits bring convenience and those shall be re-implemented.
 
 
 
-As an experiment, the `mpd-avr-client` project seeks to bring back convenience of powering on *TV*  (and putting *TV* in standby) by integrating with the *Bravia* *API*.
+As an experiment, the `mpd-avr-client` project integrates with the *Bravia* *API* to
+
+- bring back the automation of powering on *TV*  (and putting *TV* in standby), and
+- provide the convenience of launching an Application on the TV (as an option)
 
 
+
+This experimental integration can be enabled by creating a *TV* launch profile and referencing the profile through the `-b` option *e.g.*
 
 ```shell
 $ touch ~/.mpd-avr-client/bravia-launch-profile.json
@@ -144,4 +151,4 @@ copy + paste:
 
 
 
-Also follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/daemon.md) to see example
+Also follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/daemon.md) to see an example
