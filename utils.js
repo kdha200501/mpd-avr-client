@@ -1,7 +1,17 @@
 const { readdir, unlink, writeFile, readFile, stat } = require('fs');
 const { join, extname, basename } = require('path');
 const { connect } = require('net');
-const { of, from, concat, defer, Observable, Subject } = require('rxjs');
+const { request } = require('http');
+const {
+  of,
+  from,
+  concat,
+  defer,
+  forkJoin,
+  throwError,
+  Observable,
+  Subject,
+} = require('rxjs');
 const {
   take,
   takeLast,
@@ -12,6 +22,8 @@ const {
   withLatestFrom,
   scan,
   filter,
+  map,
+  catchError,
   delay,
 } = require('rxjs/operators');
 
@@ -44,6 +56,7 @@ const {
   playRegExp,
   stopRegExp,
   pauseRegExp,
+  tvLaunchProfileTypeTvTypeMap,
 } = require('./const');
 
 const MpClient = function (_mpClientProcess) {
@@ -128,6 +141,59 @@ const CecClient = function (_cecClientProcess) {
 
     return { publisher };
   })(_cecClientProcess);
+};
+
+const HttpClient = function () {
+  return (() => {
+    /**
+     * Make an HTTP POST call
+     * @param {string} hostname The hostname
+     * @param {string} path The path
+     * @param {HttpObject} payload The POST request payload
+     * @param {HttpObject} [headerOverrides] Optionally override headers
+     * @returns {Promise<HttpObject>} A promise of the API response
+     */
+    const post = (hostname, path, payload, headerOverrides = {}) =>
+      new Promise((resolve, reject) => {
+        let /** @type OutgoingHttpHeaders */ outgoingHttpHeaders = {};
+
+        const payloadString = JSON.stringify(payload);
+        outgoingHttpHeaders['Content-Type'] = 'application/json';
+        outgoingHttpHeaders['Content-Length'] =
+          Buffer.byteLength(payloadString);
+
+        let /** @type RequestOptions */ requestOptions = {};
+        requestOptions.hostname = hostname;
+        requestOptions.port = 80;
+        requestOptions.path = path;
+        requestOptions.method = 'POST';
+        requestOptions.headers = { ...outgoingHttpHeaders, ...headerOverrides };
+
+        const chunks = [];
+
+        const clientRequest = request(requestOptions, (incomingMessage) => {
+          incomingMessage.on('data', (data) => chunks.push(data));
+
+          // upon response end
+          incomingMessage.on('end', () => {
+            try {
+              resolve(JSON.parse(chunks.join('')));
+            } catch (error) {
+              reject(error);
+            }
+          });
+        });
+
+        clientRequest.on('error', reject);
+
+        clientRequest.write(payloadString);
+
+        // upon request end
+        clientRequest.end();
+      });
+
+    return { post };
+  })();
 };
 
 const AvrService = function (_appConfig, _cecClientProcess) {
@@ -733,6 +799,16 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
 
     const avrService = new AvrService(appConfig, cecClientProcess);
     const mpService = new MpService();
+    const tvLaunchService = new TvLaunchService(appConfig);
+
+    /**
+     * @desc The aim of this reducer is to switch audio source to a Smart TV which is connected to a non-HDMI audio input (on the AVR).
+     *       The following objectives are listed chronologically, and they are executed sequentially to avoid timing issues
+     *         - request AVR audio volume
+     *         - request MP playback pause
+     *         - request AVR audio source switch, request Smart TV to wake and launch app
+     *         - request AVR audio volume adjustment
+     */
 
     return (acc, [event, appState]) => {
       const [avrVolumeStatus, [fromMpStatusState, toMpStatusState]] =
@@ -741,15 +817,28 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
 
       switch (source) {
         case 'cecClient':
+          const cecClientEvent = /** @type CecClientEvent */ event;
+          const [isAudioDeviceOn] =
+            avrService.decodeAvrPowerStatus(cecClientEvent);
+
+          // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
+          if (isAudioDeviceOn === false) {
+            // then reset the reducer and request the TV to go to standby
+            tvLaunchService.isEnabled() &&
+              tvLaunchService.standBy().subscribe();
+            return [[], [undefined, undefined]];
+          }
+
+          // if the CEC transmission is not regarding audio turning off, and
           // if the reducer is waiting for MP to respond to playback pause request
           if (fromMpStatusState && !toMpStatusState) {
             // then wait for MP to confirm its next state, see case 'mpClient'
             return acc;
           }
 
-          const cecClientEvent = /** @type CecClientEvent */ event;
           const { data: cecTransmission } = cecClientEvent;
 
+          // if the CEC transmission is not regarding audio turning off, and
           // if the reducer is not waiting for MP to respond to playback pause request, and
           // if the reducer is not waiting for the AVR to respond to audio volume request
           if (
@@ -771,6 +860,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
           const _avrVolumeStatus =
             avrService.decodeAvrVolumeStatus(cecClientEvent);
 
+          // if the CEC transmission is not regarding audio turning off, and
           // if the reducer is not waiting for MP to respond to playback pause request, and
           // if the reducer is waiting for the AVR to respond to audio volume request, and
           // if the CEC transmission is not regarding AVR responding to audio volume request
@@ -781,6 +871,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
 
           const { state } = /** @type AppState */ appState;
 
+          // if the CEC transmission is not regarding audio turning off, and
           // if the reducer is not waiting for MP to respond to playback pause request, and
           // if the reducer is waiting for the AVR to respond to audio volume request, and
           // if the CEC transmission is regarding AVR responding to audio volume request, and
@@ -795,12 +886,15 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
             return [_avrVolumeStatus, [state, undefined]];
           }
 
+          // if the CEC transmission is not regarding audio turning off, and
           // if the reducer is not waiting for MP to respond to playback pause request, and
           // if the reducer is waiting for the AVR to respond to audio volume request, and
           // if the CEC transmission is regarding AVR responding to audio volume request, and
           // if MP is not playing,
           // then do not ask MP to pause and switch audio source directly
           avrService.runCommand(handOverAudioToTvCecCommand);
+          tvLaunchService.isEnabled() &&
+            tvLaunchService.wakeAndLaunchApp().subscribe();
           audioVolumePresetForTv !== undefined &&
             of(audioVolumePresetForTv)
               .pipe(
@@ -845,6 +939,8 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
             () => avrService.runCommand(handOverAudioToTvCecCommand),
             500
           );
+          tvLaunchService.isEnabled() &&
+            tvLaunchService.wakeAndLaunchApp().subscribe();
           audioVolumePresetForTv !== undefined &&
             of(audioVolumePresetForTv)
               .pipe(
@@ -1351,6 +1447,224 @@ const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
 
     return { publisher, onExit };
   })(_cecClientProcess, _mpClientProcess);
+};
+
+const TvLaunchService = function (_appConfig) {
+  return ((appConfig) => {
+    let /** @type string */ tvLaunchProfilePath;
+    let /** @type TvType */ tvType;
+    for (const tvLaunchProfileType of tvLaunchProfileTypeTvTypeMap.keys()) {
+      if (!appConfig[tvLaunchProfileType]) {
+        continue;
+      }
+
+      tvLaunchProfilePath = appConfig[tvLaunchProfileType];
+      tvType = tvLaunchProfileTypeTvTypeMap.get(tvLaunchProfileType);
+    }
+
+    const httpClient = new HttpClient();
+
+    const braviaPayloadBase =
+      /** @type {Pick<BraviaPayload, "version" | "id" | "params">} */ {
+        version: '1.0',
+        id: 1,
+        params: [],
+      };
+
+    const tvLaunchProfile$ =
+      /** @type Observable<TvLaunchProfile> */ new Observable((subscriber) => {
+        readFile(tvLaunchProfilePath, (err, data) => {
+          if (err) {
+            return subscriber.error(err);
+          }
+
+          try {
+            subscriber.next(JSON.parse(data.toString()));
+            subscriber.complete();
+          } catch (err) {
+            subscriber.error(err);
+            subscriber.complete();
+          }
+        });
+
+        return () => {};
+      }).pipe(shareReplay());
+
+    const isEnabled = () => !!tvType;
+
+    const getAppTitle = () =>
+      tvLaunchProfile$.pipe(
+        map(({ appTitle }) => appTitle),
+        catchError(() => of({})),
+        take(1)
+      );
+
+    const wake = () =>
+      tvLaunchProfile$.pipe(
+        switchMap((tvLaunchProfile) => {
+          const { hostname } = /** @type TvLaunchProfile */ tvLaunchProfile;
+
+          switch (tvType) {
+            case 'BRAVIA':
+              const { preSharedKey } =
+                /** @type BraviaLaunchProfile */ tvLaunchProfile;
+              return httpClient.post(
+                hostname,
+                '/sony/system',
+                {
+                  ...braviaPayloadBase,
+                  method: 'setPowerStatus',
+                  params: [{ status: true }],
+                },
+                preSharedKey && { 'X-Auth-PSK': preSharedKey }
+              );
+            default:
+              return throwError(null);
+          }
+        }),
+        catchError(() => of({})),
+        take(1)
+      );
+
+    const standBy = () =>
+      tvLaunchProfile$.pipe(
+        switchMap((tvLaunchProfile) => {
+          const { hostname } = /** @type TvLaunchProfile */ tvLaunchProfile;
+
+          switch (tvType) {
+            case 'BRAVIA':
+              const { preSharedKey } =
+                /** @type BraviaLaunchProfile */ tvLaunchProfile;
+              return httpClient.post(
+                hostname,
+                '/sony/system',
+                {
+                  ...braviaPayloadBase,
+                  method: 'setPowerStatus',
+                  params: [{ status: false }],
+                },
+                preSharedKey && { 'X-Auth-PSK': preSharedKey }
+              );
+            default:
+              return throwError(null);
+          }
+        }),
+        catchError(() => of({})),
+        take(1)
+      );
+
+    const listApps = () =>
+      tvLaunchProfile$.pipe(
+        switchMap((tvLaunchProfile) => {
+          const { hostname } = /** @type TvLaunchProfile */ tvLaunchProfile;
+
+          switch (tvType) {
+            case 'BRAVIA':
+              const { preSharedKey } =
+                /** @type BraviaLaunchProfile */ tvLaunchProfile;
+              return httpClient.post(
+                hostname,
+                '/sony/appControl',
+                {
+                  ...braviaPayloadBase,
+                  method: 'getApplicationList',
+                },
+                preSharedKey && { 'X-Auth-PSK': preSharedKey }
+              );
+            default:
+              return throwError(null);
+          }
+        }),
+        catchError(() => of({})),
+        take(1)
+      );
+
+    const launchApp = (uri) =>
+      tvLaunchProfile$.pipe(
+        switchMap((tvLaunchProfile) => {
+          const { hostname } = /** @type TvLaunchProfile */ tvLaunchProfile;
+
+          switch (tvType) {
+            case 'BRAVIA':
+              const { preSharedKey } =
+                /** @type BraviaLaunchProfile */ tvLaunchProfile;
+              return httpClient.post(
+                hostname,
+                '/sony/appControl',
+                {
+                  ...braviaPayloadBase,
+                  method: 'setActiveApp',
+                  params: [{ uri }],
+                },
+                preSharedKey && { 'X-Auth-PSK': preSharedKey }
+              );
+            default:
+              return throwError(null);
+          }
+        }),
+        catchError(() => of({})),
+        take(1)
+      );
+
+    const wakeAndLaunchAppForBravia = () =>
+      forkJoin(listApps(), getAppTitle()).pipe(
+        switchMap(([braviaResponse, appTitle]) => {
+          const { result, error } = /** @type BraviaResponse */ braviaResponse;
+
+          // if the API call to the TV failed or the response contains error
+          if (!result || error) {
+            // then do not wake the TV
+            return of({});
+          }
+
+          const [braviaApps] = /** @type [BraviaApp[]] */ result || [[]];
+
+          const braviaAppMap = new Map(
+            braviaApps.map((braviaApp) => [braviaApp.title, braviaApp])
+          );
+
+          // if the API call to the TV succeeded and the response does not contain error, and
+          // if there is no specified app in the launch profile
+          if (!appTitle) {
+            // then wake the TV, only
+            return wake();
+          }
+
+          const { uri } =
+            /** @type BraviaApp */ braviaAppMap.get(appTitle) || {};
+
+          // if the API call to the TV succeeded and the response does not contain error, and
+          // if there is a specified app in the launch profile, and
+          // if the specified app is not installed on the TV
+          if (!uri) {
+            // then wake the TV, only
+            return wake();
+          }
+
+          // if the API call to the TV succeeded and the response does not contain error, and
+          // if there is a specified app in the launch profile, and
+          // if the specified app is installed on the TV,
+          // then wake the TV and then launch the app
+          return concat(wake(), launchApp(uri));
+        }),
+        takeLast(1)
+      );
+
+    const wakeAndLaunchApp = () => {
+      switch (tvType) {
+        case 'BRAVIA':
+          return wakeAndLaunchAppForBravia();
+        default:
+          return throwError(null);
+      }
+    };
+
+    return {
+      isEnabled,
+      wakeAndLaunchApp,
+      standBy,
+    };
+  })(_appConfig);
 };
 
 module.exports = {

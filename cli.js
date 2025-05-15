@@ -33,6 +33,13 @@ const { argv: appConfig } = require('yargs')
     'T',
     'Optionally set the audio volume when the AVR switches audio source to TV'
   )
+  .alias('b', 'braviaLaunchProfile')
+  .nargs('b', 1)
+  .string('b')
+  .describe(
+    'b',
+    'Optionally provide the path to a launch profile for Sony Bravia TV'
+  )
   .help('h')
   .alias('h', 'help');
 const { spawn } = require('child_process');

@@ -16,7 +16,7 @@ Description=AVR as a MPD client
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/mpd-avr-client
+ExecStart=/usr/local/bin/mpd-avr-client -v 38 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json
 Restart=always
 User=root
 
