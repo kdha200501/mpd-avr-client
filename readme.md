@@ -104,6 +104,44 @@ $ sudo mpd-avr-client
                                      audio source.                      [string]
   -T, --audioVolumePresetForTv       Optionally set the audio volume when the
                                      AVR switches audio source to TV    [number]
+  -b, --braviaLaunchProfile          Optionally provide the path to a launch
+                                     profile for Sony Bravia TV         [string]
   -h, --help                         Show help                         [boolean]
 ```
 
+
+
+
+
+# Smart TV integration
+
+The `mpd-avr-client` project is setup to avoid having *TV*(s) connected to *HDMI* ports of the *AVR*. This setup cuts off communication between the *AVR* and the *TV* to avoid unwanted propitiatory behaviours that are baked into these devices and give rise to unpleasant surprises. However, some traits bring convenience and those shall be re-implemented.
+
+
+
+As an experiment, the `mpd-avr-client` project seeks to bring back convenience of powering on *TV*  (and putting *TV* in standby) by integrating with the *Bravia* *API*.
+
+
+
+```shell
+$ touch ~/.mpd-avr-client/bravia-launch-profile.json
+$ vim ~/.mpd-avr-client/bravia-launch-profile.json
+```
+
+copy + paste:
+
+```json
+{
+  "hostname": "<bravia__ip-address>",
+  "preSharedKey": "<bravia__pre-shared-key--if-configured>",
+  "appTitle": "e.g. Kodi"
+}
+```
+
+> [!TIP]
+>
+> `-t` option is required, and optionally use a *Flirc* to control *TV* with the *AVR* remote-control
+
+
+
+Also follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/daemon.md) to see example
