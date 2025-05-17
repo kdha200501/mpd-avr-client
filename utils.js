@@ -832,6 +832,37 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
     };
 
     /**
+     * Switch audio source
+     * @param {AvrVolumeStatus} avrVolumeStatus The current AVR Audio Status
+     * @returns {void} No output
+     */
+    const switchingAudioSource = (avrVolumeStatus) => {
+      avrService.runCommand(handOverAudioToTvCecCommand);
+
+      if (tvLaunchService.isEnabled()) {
+        tvLaunchService.wakeAndLaunchApp().subscribe();
+      }
+
+      if (audioVolumePresetForTv !== undefined) {
+        of(audioVolumePresetForTv)
+          .pipe(
+            /**
+             * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+             */
+            delay(500),
+            switchMap(() =>
+              avrService.adjustAudioVolume(
+                avrVolumeStatus,
+                audioVolumePresetForTv
+              )
+            ),
+            take(1)
+          )
+          .subscribe();
+      }
+    };
+
+    /**
      * @desc The aim of this reducer is to switch audio source to a Smart TV which is connected to a non-HDMI audio input (on the AVR).
      *       The following objectives are listed chronologically, and they are executed sequentially to avoid timing issues
      *         - request AVR audio volume
@@ -912,25 +943,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
           // if the CEC transmission is regarding AVR responding to audio volume request, and
           // if MP is not playing,
           // then do not ask MP to pause and switch audio source directly
-          avrService.runCommand(handOverAudioToTvCecCommand);
-          tvLaunchService.isEnabled() &&
-            tvLaunchService.wakeAndLaunchApp().subscribe();
-          audioVolumePresetForTv !== undefined &&
-            of(audioVolumePresetForTv)
-              .pipe(
-                /**
-                 * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
-                 */
-                delay(500),
-                switchMap(() =>
-                  avrService.adjustAudioVolume(
-                    _avrVolumeStatus,
-                    audioVolumePresetForTv
-                  )
-                ),
-                take(1)
-              )
-              .subscribe();
+          switchingAudioSource(_avrVolumeStatus);
           return [_avrVolumeStatus, [state, state]];
 
         case 'mpClient':
@@ -955,28 +968,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
           /**
            * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
            */
-          setTimeout(
-            () => avrService.runCommand(handOverAudioToTvCecCommand),
-            500
-          );
-          tvLaunchService.isEnabled() &&
-            tvLaunchService.wakeAndLaunchApp().subscribe();
-          audioVolumePresetForTv !== undefined &&
-            of(audioVolumePresetForTv)
-              .pipe(
-                /**
-                 * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
-                 */
-                delay(1000),
-                switchMap(() =>
-                  avrService.adjustAudioVolume(
-                    avrVolumeStatus,
-                    audioVolumePresetForTv
-                  )
-                ),
-                take(1)
-              )
-              .subscribe();
+          setTimeout(() => switchingAudioSource(avrVolumeStatus), 500);
           return [avrVolumeStatus, [fromMpStatusState, mpStatus.state]];
 
         default:
