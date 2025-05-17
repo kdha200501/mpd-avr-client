@@ -802,6 +802,36 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
     const tvLaunchService = new TvLaunchService(appConfig);
 
     /**
+     * Initiate the audio source switch sequence by requesting the ARR audio volume
+     * @param {AppState} appState The current App State
+     * @param {CecClientEvent} cecClientEvent The received CEC Client Event
+     * @returns {[AvrVolumeStatus, MpStatusStateTransition]} The AVR Volume Status and the MP Status State Transition
+     */
+    const initiateAudioSourceSwitch = (
+      { isAudioDeviceOn },
+      { data: cecTransmission }
+    ) => {
+      // if the AVR is in standby mode
+      if (!isAudioDeviceOn) {
+        // then reset the reducer
+        return [[], [undefined, undefined]];
+      }
+
+      // if the AVR is not in standby mode, and
+      // if the CEC transmission is regarding audio source switching
+      if (blueFunctionKeyupRegExp.test(cecTransmission)) {
+        // then ask AVR for audio volume (to initiate the audio source switching process)
+        avrService.requestAudioVolume();
+        return [[undefined], [undefined, undefined]];
+      }
+
+      // if the AVR is not in standby mode, and
+      // if the CEC transmission is not regarding audio source switching,
+      // then reset the reducer
+      return [[], [undefined, undefined]];
+    };
+
+    /**
      * @desc The aim of this reducer is to switch audio source to a Smart TV which is connected to a non-HDMI audio input (on the AVR).
      *       The following objectives are listed chronologically, and they are executed sequentially to avoid timing issues
      *         - request AVR audio volume
@@ -836,8 +866,6 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
             return acc;
           }
 
-          const { data: cecTransmission } = cecClientEvent;
-
           // if the CEC transmission is not regarding audio turning off, and
           // if the reducer is not waiting for MP to respond to playback pause request, and
           // if the reducer is not waiting for the AVR to respond to audio volume request
@@ -845,16 +873,8 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
             !avrVolumeStatus.length ||
             avrService.isAvrVolumeStatsValid(avrVolumeStatus)
           ) {
-            // if the CEC transmission is regarding audio source switching
-            if (blueFunctionKeyupRegExp.test(cecTransmission)) {
-              // then ask AVR for audio volume (to initiate the audio source switching process)
-              avrService.requestAudioVolume();
-              return [[undefined], [undefined, undefined]];
-            }
-
-            // if the CEC transmission is not regarding audio source switching,
-            // then reset the reducer
-            return [[], [undefined, undefined]];
+            // then initiate the audio switch sequence
+            return initiateAudioSourceSwitch(appState, cecClientEvent);
           }
 
           const _avrVolumeStatus =
