@@ -216,11 +216,7 @@ if (handOverAudioToTvCecCommand) {
   )
     .pipe(
       withLatestFrom(appStateChange$),
-      scan(
-        new AvrAudioSourceSwitchReducer(appConfig, cecClientProcess),
-        /** @type {[AvrVolumeStatus, MpStatusStateTransition]} */
-        [[], [undefined, undefined]]
-      ),
+      scan(...new AvrAudioSourceSwitchReducer(appConfig, cecClientProcess)),
       takeUntil(destroy$)
     )
     .subscribe(); // switch audio source
