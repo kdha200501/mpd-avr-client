@@ -718,32 +718,48 @@ const AvrPowerStatusReducer = function (_appConfig, _cecClientProcess) {
   return ((appConfig, cecClientProcess) => {
     const avrService = new AvrService(appConfig, cecClientProcess);
 
-    return (acc, _cecClientEvent) => {
-      const { length } = /** @type AvrPowerStatus */ acc;
-      const cecClientEvent = /** @type CecClientEvent */ _cecClientEvent;
+    /**
+     * Get the initial state
+     * @returns {AvrPowerStatus} The initial state
+     */
+    const getInitState = () => [];
 
-      // if the request for AVR power status has been made
-      if (length) {
-        // then deduce the AVR power statue from transmissions received
-        return avrService.decodeAvrPowerStatus(cecClientEvent);
-      }
+    /**
+     * @desc The aim of this reducer is to retrieve the AVR power status during the initialization of the application
+     *       The following objectives are listed chronologically, and they are executed sequentially to avoid timing issues
+     *         - wait for the AVR to request for identification from CEC Client
+     *         - request the power status from the AVR
+     */
 
-      // if the request for AVR power status has not been made, and
-      // if the AVR is reaching out to identify the host
-      if (avrService.isAvrRequestDisplayName(cecClientEvent)) {
-        // then make a request for AVR power status
-        /**
-         * @desc when the host jumps on the HDMI bus, the audio device reaches out to the host and asks for identification
-         */
-        avrService.requestPowerStatus();
-        return [undefined];
-      }
+    return [
+      (acc, _cecClientEvent) => {
+        const { length } = /** @type AvrPowerStatus */ acc;
+        const cecClientEvent = /** @type CecClientEvent */ _cecClientEvent;
 
-      // if the request for AVR power status has not been made, and
-      // if the AVR is not reaching out to identify the host,
-      // then no-op
-      return acc;
-    };
+        // if the request for AVR power status has been made
+        if (length) {
+          // then deduce the AVR power statue from transmissions received
+          return avrService.decodeAvrPowerStatus(cecClientEvent);
+        }
+
+        // if the request for AVR power status has not been made, and
+        // if the AVR is reaching out to identify the host
+        if (avrService.isAvrRequestDisplayName(cecClientEvent)) {
+          // then make a request for AVR power status
+          /**
+           * @desc when CEC Client jumps on the HDMI bus, the AVR reaches out to CEC Client and asks for identification
+           */
+          avrService.requestPowerStatus();
+          return [undefined];
+        }
+
+        // if the request for AVR power status has not been made, and
+        // if the AVR is not reaching out to identify the host,
+        // then no-op
+        return acc;
+      },
+      getInitState(),
+    ];
   })(_appConfig, _cecClientProcess);
 };
 
@@ -751,44 +767,60 @@ const AvrWakeUpVolumeStatusReducer = function (_appConfig, _cecClientProcess) {
   return ((appConfig, cecClientProcess) => {
     const avrService = new AvrService(appConfig, cecClientProcess);
 
-    return (acc, cecClientEvent) => {
-      const [isAudioDeviceOn] = avrService.decodeAvrPowerStatus(
-        /** @type {CecClientEvent} */ cecClientEvent
-      );
+    /**
+     * Get the initial state
+     * @returns {AvrVolumeStatus} The initial state
+     */
+    const getInitState = () => [];
 
-      // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
-      if (isAudioDeviceOn === false) {
-        // then reset the reducer
-        return [];
-      }
+    /**
+     * @desc The aim of this reducer is to retrieve the AVR audio volume when the AVR wakes up
+     *       The following objectives are listed chronologically, and they are executed sequentially to avoid timing issues
+     *         - wait for the AVR to wake up
+     *         - request the volume status from the AVR
+     */
 
-      // if the CEC transmission is not regarding audio turning off, and
-      // if the CEC transmission is regarding audio turning on
-      if (isAudioDeviceOn) {
-        // then request audio volume status
-        /**
-         * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
-         */
-        setTimeout(() => avrService.requestAudioVolume(), 500);
-        return [undefined];
-      }
+    return [
+      (acc, cecClientEvent) => {
+        const [isAudioDeviceOn] = avrService.decodeAvrPowerStatus(
+          /** @type {CecClientEvent} */ cecClientEvent
+        );
 
-      const { length } = /** @type AvrVolumeStatus */ acc;
+        // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
+        if (isAudioDeviceOn === false) {
+          // then reset the reducer
+          return getInitState();
+        }
 
-      // if the CEC transmission is not regarding audio turning off, and
-      // if the CEC transmission is not regarding audio turning on, and
-      // if a request for the audio volume status was made
-      if (length) {
-        // then decode the CEC transmission
-        return avrService.decodeAvrVolumeStatus(cecClientEvent);
-      }
+        // if the CEC transmission is not regarding audio turning off, and
+        // if the CEC transmission is regarding audio turning on
+        if (isAudioDeviceOn) {
+          // then request audio volume status
+          /**
+           * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+           */
+          setTimeout(() => avrService.requestAudioVolume(), 500);
+          return [undefined];
+        }
 
-      // if the CEC transmission is not regarding audio turning off, and
-      // if the CEC transmission is not regarding audio turning on, and
-      // if a request for the audio volume status was not made,
-      // then no-op
-      return acc;
-    };
+        const { length } = /** @type AvrVolumeStatus */ acc;
+
+        // if the CEC transmission is not regarding audio turning off, and
+        // if the CEC transmission is not regarding audio turning on, and
+        // if a request for the audio volume status was made
+        if (length) {
+          // then decode the CEC transmission
+          return avrService.decodeAvrVolumeStatus(cecClientEvent);
+        }
+
+        // if the CEC transmission is not regarding audio turning off, and
+        // if the CEC transmission is not regarding audio turning on, and
+        // if a request for the audio volume status was not made,
+        // then no-op
+        return acc;
+      },
+      getInitState(),
+    ];
   })(_appConfig, _cecClientProcess);
 };
 
@@ -800,6 +832,12 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
     const avrService = new AvrService(appConfig, cecClientProcess);
     const mpService = new MpService();
     const tvLaunchService = new TvLaunchService(appConfig);
+
+    /**
+     * Get the initial state
+     * @returns {[AvrVolumeStatus, MpStatusStateTransition]} The initial state
+     */
+    const getInitState = () => [[], [undefined, undefined]];
 
     /**
      * Initiate the audio source switch sequence by requesting the ARR audio volume
@@ -814,7 +852,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
       // if the AVR is in standby mode
       if (!isAudioDeviceOn) {
         // then reset the reducer
-        return [[], [undefined, undefined]];
+        return getInitState();
       }
 
       // if the AVR is not in standby mode, and
@@ -828,7 +866,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
       // if the AVR is not in standby mode, and
       // if the CEC transmission is not regarding audio source switching,
       // then reset the reducer
-      return [[], [undefined, undefined]];
+      return getInitState();
     };
 
     /**
@@ -871,110 +909,113 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
      *         - request AVR audio volume adjustment
      */
 
-    return (acc, [event, appState]) => {
-      const [avrVolumeStatus, [fromMpStatusState, toMpStatusState]] =
-        /** @type {[AvrVolumeStatus, MpStatusStateTransition]} */ acc;
-      const { source } = /** @type {CecClientEvent|MpClientEvent} */ event;
+    return [
+      (acc, [event, appState]) => {
+        const [avrVolumeStatus, [fromMpStatusState, toMpStatusState]] =
+          /** @type {[AvrVolumeStatus, MpStatusStateTransition]} */ acc;
+        const { source } = /** @type {CecClientEvent|MpClientEvent} */ event;
 
-      switch (source) {
-        case 'cecClient':
-          const cecClientEvent = /** @type CecClientEvent */ event;
-          const [isAudioDeviceOn] =
-            avrService.decodeAvrPowerStatus(cecClientEvent);
+        switch (source) {
+          case 'cecClient':
+            const cecClientEvent = /** @type CecClientEvent */ event;
+            const [isAudioDeviceOn] =
+              avrService.decodeAvrPowerStatus(cecClientEvent);
 
-          // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
-          if (isAudioDeviceOn === false) {
-            // then reset the reducer and request the TV to go to standby
-            tvLaunchService.isEnabled() &&
-              tvLaunchService.standBy().subscribe();
-            return [[], [undefined, undefined]];
-          }
+            // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
+            if (isAudioDeviceOn === false) {
+              // then reset the reducer and request the TV to go to standby
+              tvLaunchService.isEnabled() &&
+                tvLaunchService.standBy().subscribe();
+              return getInitState();
+            }
 
-          // if the CEC transmission is not regarding audio turning off, and
-          // if the reducer is waiting for MP to respond to playback pause request
-          if (fromMpStatusState && !toMpStatusState) {
-            // then wait for MP to confirm its next state, see case 'mpClient'
-            return acc;
-          }
+            // if the CEC transmission is not regarding audio turning off, and
+            // if the reducer is waiting for MP to respond to playback pause request
+            if (fromMpStatusState && !toMpStatusState) {
+              // then wait for MP to confirm its next state, see case 'mpClient'
+              return acc;
+            }
 
-          // if the CEC transmission is not regarding audio turning off, and
-          // if the reducer is not waiting for MP to respond to playback pause request, and
-          // if the reducer is not waiting for the AVR to respond to audio volume request
-          if (
-            !avrVolumeStatus.length ||
-            avrService.isAvrVolumeStatsValid(avrVolumeStatus)
-          ) {
-            // then initiate the audio switch sequence
-            return initiateAudioSourceSwitch(appState, cecClientEvent);
-          }
+            // if the CEC transmission is not regarding audio turning off, and
+            // if the reducer is not waiting for MP to respond to playback pause request, and
+            // if the reducer is not waiting for the AVR to respond to audio volume request
+            if (
+              !avrVolumeStatus.length ||
+              avrService.isAvrVolumeStatsValid(avrVolumeStatus)
+            ) {
+              // then initiate the audio switch sequence
+              return initiateAudioSourceSwitch(appState, cecClientEvent);
+            }
 
-          const _avrVolumeStatus =
-            avrService.decodeAvrVolumeStatus(cecClientEvent);
+            const _avrVolumeStatus =
+              avrService.decodeAvrVolumeStatus(cecClientEvent);
 
-          // if the CEC transmission is not regarding audio turning off, and
-          // if the reducer is not waiting for MP to respond to playback pause request, and
-          // if the reducer is waiting for the AVR to respond to audio volume request, and
-          // if the CEC transmission is not regarding AVR responding to audio volume request
-          if (!avrService.isAvrVolumeStatsValid(_avrVolumeStatus)) {
-            // then no-op
-            return acc;
-          }
+            // if the CEC transmission is not regarding audio turning off, and
+            // if the reducer is not waiting for MP to respond to playback pause request, and
+            // if the reducer is waiting for the AVR to respond to audio volume request, and
+            // if the CEC transmission is not regarding AVR responding to audio volume request
+            if (!avrService.isAvrVolumeStatsValid(_avrVolumeStatus)) {
+              // then no-op
+              return acc;
+            }
 
-          const { state } = /** @type AppState */ appState;
+            const { state } = /** @type AppState */ appState;
 
-          // if the CEC transmission is not regarding audio turning off, and
-          // if the reducer is not waiting for MP to respond to playback pause request, and
-          // if the reducer is waiting for the AVR to respond to audio volume request, and
-          // if the CEC transmission is regarding AVR responding to audio volume request, and
-          // if MP is playing
-          if (playRegExp.test(state)) {
-            // then ask MP to pause
-            avrService.updateOsd('pause');
+            // if the CEC transmission is not regarding audio turning off, and
+            // if the reducer is not waiting for MP to respond to playback pause request, and
+            // if the reducer is waiting for the AVR to respond to audio volume request, and
+            // if the CEC transmission is regarding AVR responding to audio volume request, and
+            // if MP is playing
+            if (playRegExp.test(state)) {
+              // then ask MP to pause
+              avrService.updateOsd('pause');
+              /**
+               * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
+               */
+              setTimeout(() => mpService.pause(), 500);
+              return [_avrVolumeStatus, [state, undefined]];
+            }
+
+            // if the CEC transmission is not regarding audio turning off, and
+            // if the reducer is not waiting for MP to respond to playback pause request, and
+            // if the reducer is waiting for the AVR to respond to audio volume request, and
+            // if the CEC transmission is regarding AVR responding to audio volume request, and
+            // if MP is not playing,
+            // then do not ask MP to pause and switch audio source directly
+            switchingAudioSource(_avrVolumeStatus);
+            return [_avrVolumeStatus, [state, state]];
+
+          case 'mpClient':
+            // if the reducer is not waiting for MP to respond to playback pause request
+            if (!fromMpStatusState || toMpStatusState) {
+              // then reset the reducer
+              return getInitState();
+            }
+
+            const { data: mpStatus } = /** @type MpClientEvent */ event;
+
+            // if the reducer is waiting for MP to respond to playback pause request, and
+            // if MP decides to keep playing
+            if (playRegExp.test(mpStatus.state)) {
+              // then reset the reducer
+              return getInitState();
+            }
+
+            // if the reducer is waiting for MP to respond to playback pause request, and
+            // if MP confirms playback is paused,
+            // then switch the audio source
             /**
              * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
              */
-            setTimeout(() => mpService.pause(), 500);
-            return [_avrVolumeStatus, [state, undefined]];
-          }
+            setTimeout(() => switchingAudioSource(avrVolumeStatus), 500);
+            return [avrVolumeStatus, [fromMpStatusState, mpStatus.state]];
 
-          // if the CEC transmission is not regarding audio turning off, and
-          // if the reducer is not waiting for MP to respond to playback pause request, and
-          // if the reducer is waiting for the AVR to respond to audio volume request, and
-          // if the CEC transmission is regarding AVR responding to audio volume request, and
-          // if MP is not playing,
-          // then do not ask MP to pause and switch audio source directly
-          switchingAudioSource(_avrVolumeStatus);
-          return [_avrVolumeStatus, [state, state]];
-
-        case 'mpClient':
-          // if the reducer is not waiting for MP to respond to playback pause request
-          if (!fromMpStatusState || toMpStatusState) {
-            // then reset the reducer
-            return [[], [undefined, undefined]];
-          }
-
-          const { data: mpStatus } = /** @type MpClientEvent */ event;
-
-          // if the reducer is waiting for MP to respond to playback pause request, and
-          // if MP decides to keep playing
-          if (playRegExp.test(mpStatus.state)) {
-            // then reset the reducer
-            return [[], [undefined, undefined]];
-          }
-
-          // if the reducer is waiting for MP to respond to playback pause request, and
-          // if MP confirms playback is paused,
-          // then switch the audio source
-          /**
-           * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
-           */
-          setTimeout(() => switchingAudioSource(avrVolumeStatus), 500);
-          return [avrVolumeStatus, [fromMpStatusState, mpStatus.state]];
-
-        default:
-          return [[], [undefined, undefined]];
-      }
-    };
+          default:
+            return getInitState();
+        }
+      },
+      getInitState(),
+    ];
   })(_appConfig, _cecClientProcess);
 };
 
@@ -1282,60 +1323,67 @@ const AppStateReducer = function (_appConfig, _cecClientProcess) {
       return { ...currentAppState };
     };
 
-    return (currentAppState, event) => {
-      if (!event) {
-        return;
-      }
+    /**
+     * @desc The entire application state
+     */
 
-      let /** @type AppState */ appState;
+    return [
+      (currentAppState, event) => {
+        if (!event) {
+          return;
+        }
 
-      // if handling the initial application state
-      if (currentAppState === undefined) {
-        // then initialize the application state
-        appState = /** @type AppState */ event;
-        return { ...appState };
-      }
+        let /** @type AppState */ appState;
 
-      appState = currentAppState;
-      const { data, source } =
-        /** @type {CecClientEvent|MpClientEvent} */ event;
+        // if handling the initial application state
+        if (currentAppState === undefined) {
+          // then initialize the application state
+          appState = /** @type AppState */ event;
+          return { ...appState };
+        }
 
-      // if handling a subsequent actions or state change
-      switch (source) {
-        // then mutate the application state
+        appState = currentAppState;
+        const { data, source } =
+          /** @type {CecClientEvent|MpClientEvent} */ event;
 
-        // if the event comes from the music player
-        case 'mpClient':
-          // then update the application state to sync up with the music player state
-          const mpStatus = /** @type MpStatus */ data;
-          return onMpStateChange(mpStatus, appState);
+        // if handling a subsequent actions or state change
+        switch (source) {
+          // then mutate the application state
 
-        // if the event comes from the CEC client
-        case 'cecClient':
-          // then update the application state according to the action
-          const [isAudioDeviceOn] = avrService.decodeAvrPowerStatus(
-            /** @type {CecClientEvent} */ event
-          );
+          // if the event comes from the music player
+          case 'mpClient':
+            // then update the application state to sync up with the music player state
+            const mpStatus = /** @type MpStatus */ data;
+            return onMpStateChange(mpStatus, appState);
 
-          if (isAudioDeviceOn !== undefined) {
-            return onAvrPowerStatusChange(
-              cecClientProcess,
-              isAudioDeviceOn,
+          // if the event comes from the CEC client
+          case 'cecClient':
+            // then update the application state according to the action
+            const [isAudioDeviceOn] = avrService.decodeAvrPowerStatus(
+              /** @type {CecClientEvent} */ event
+            );
+
+            if (isAudioDeviceOn !== undefined) {
+              return onAvrPowerStatusChange(
+                cecClientProcess,
+                isAudioDeviceOn,
+                appState
+              );
+            }
+
+            return onRemoteControlKeyup(
+              /** @type CecTransmission */ data,
               appState
             );
-          }
 
-          return onRemoteControlKeyup(
-            /** @type CecTransmission */ data,
-            appState
-          );
-
-        // if the event comes from an unknown source
-        default:
-          // then no-op
-          return { ...appState };
-      }
-    };
+          // if the event comes from an unknown source
+          default:
+            // then no-op
+            return { ...appState };
+        }
+      },
+      undefined,
+    ];
   })(_appConfig, _cecClientProcess);
 };
 

@@ -105,10 +105,7 @@ const cecClientEvent$ = cecClient.publisher();
 const destroy$ = appTerminator.publisher();
 
 const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
-  scan(
-    new AvrPowerStatusReducer(appConfig, cecClientProcess),
-    /** @type AvrPowerStatus */ []
-  ),
+  scan(...new AvrPowerStatusReducer(appConfig, cecClientProcess)),
   filter(avrService.isAvrPowerStatusValid),
   take(1)
 );
@@ -135,14 +132,7 @@ const appStateChange$ = /** @type {Observable<AppState>} */ concat(
    */
   merge(cecClientEvent$, mpClientEvent$)
 ).pipe(
-  scan(
-    new AppStateReducer(appConfig, cecClientProcess),
-    /**
-     * @desc the application state placeholder
-     * @type AppState
-     */
-    undefined
-  ),
+  scan(...new AppStateReducer(appConfig, cecClientProcess)),
   distinctUntilChanged(appStateService.isAppStateChanged),
   share()
 );
@@ -196,10 +186,7 @@ const { audioVolumePreset, handOverAudioToTvCecCommand } =
 if (audioVolumePreset !== undefined) {
   postInitialAvrPowerStatusCecClientEvent$
     .pipe(
-      scan(
-        new AvrWakeUpVolumeStatusReducer(appConfig, cecClientProcess),
-        /** @type AvrVolumeStatus */ []
-      ),
+      scan(...new AvrWakeUpVolumeStatusReducer(appConfig, cecClientProcess)),
       filter(avrService.isAvrVolumeStatsValid),
       switchMap((avrVolumeStatus) =>
         avrService.adjustAudioVolume(avrVolumeStatus)
@@ -216,11 +203,7 @@ if (handOverAudioToTvCecCommand) {
   )
     .pipe(
       withLatestFrom(appStateChange$),
-      scan(
-        new AvrAudioSourceSwitchReducer(appConfig, cecClientProcess),
-        /** @type {[AvrVolumeStatus, MpStatusStateTransition]} */
-        [[], [undefined, undefined]]
-      ),
+      scan(...new AvrAudioSourceSwitchReducer(appConfig, cecClientProcess)),
       takeUntil(destroy$)
     )
     .subscribe(); // switch audio source
