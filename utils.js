@@ -1371,6 +1371,10 @@ const AppStateReducer = function (_appConfig, _cecClientProcess) {
               );
             }
 
+            if (!appState.isAudioDeviceOn) {
+              return { ...appState };
+            }
+
             return onRemoteControlKeyup(
               /** @type CecTransmission */ data,
               appState
