@@ -5,6 +5,7 @@
  * @property {string} handOverAudioToTvCecCommand
  * @property {number} audioVolumePresetForTv
  * @property {TvLaunchProfileType} braviaLaunchProfile
+ * @property {LedLaunchProfileType} goveeLaunchProfile
  */
 
 /**
@@ -111,4 +112,22 @@
  * @property {string} title
  * @property {string} uri
  * @property {string} icon
+ */
+
+/**
+ * @typedef {'GOVEE'} LedType
+ */
+
+/**
+ * @typedef {'goveeLaunchProfile'} LedLaunchProfileType
+ */
+
+/**
+ * @typedef {Object} LedLaunchProfile
+ */
+
+/**
+ * @typedef {LedLaunchProfile} GoveeLaunchProfile
+ * @property {string} macAddress
+ * @property {string} rowNumberHex
  */

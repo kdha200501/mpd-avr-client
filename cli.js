@@ -40,6 +40,13 @@ const { argv: appConfig } = require('yargs')
     'b',
     'Optionally provide the path to a launch profile for Sony Bravia TV. This powers on TV when the AVR switches audio source to a TV.'
   )
+  .alias('g', 'goveeLaunchProfile')
+  .nargs('g', 1)
+  .string('g')
+  .describe(
+    'g',
+    'Optionally provide the path to a launch profile for Govee LED strip for TV. This powers on LEDs when the AVR switches audio source to a TV.'
+  )
   .help('h')
   .alias('h', 'help');
 const { spawn } = require('child_process');
