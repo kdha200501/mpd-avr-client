@@ -108,8 +108,18 @@ $ sudo mpd-avr-client
                                      profile for Sony Bravia TV. This powers on
                                      TV when the AVR switches audio source to a
                                      TV.                                [string]
+  -g, --goveeLaunchProfile           Optionally provide the path to a launch
+                                     profile for Govee LED strip for TV. This
+                                     powers on LEDs when the AVR switches audio
+                                     source to a TV.                    [string]
   -h, --help                         Show help                         [boolean]
 ```
+
+
+
+##### Launch on boot
+
+Follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/daemon.md) to see an example
 
 
 
@@ -151,4 +161,45 @@ copy + paste:
 
 
 
-Also follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/daemon.md) to see an example
+
+
+# Smart LED strip for TV integration
+As an experiment, the `mpd-avr-client` project integrates with *Govee* through *Bluetooth* to automate the power cycle of LED light strip
+
+
+
+This experimental integration can be enabled by creating an *LED* launch profile and referencing the profile through the `-g` option *e.g.*
+
+```shell
+$ touch ~/.mpd-avr-client/govee-launch-profile.json
+$ vim ~/.mpd-avr-client/govee-launch-profile.json
+```
+
+copy + paste:
+
+```json
+{
+  "macAddress": "<govee__mac-address>",
+  "rowNumberHex": "<power__row-number>"
+}
+```
+
+> [!NOTE]
+>
+> The *Bluetooth* MAC address can be found by listing *Bluetooth* devices with this command:
+> ```shell
+> $ sudo hcitool lescan
+> ```
+>
+> The row number is the memory location for sending power management commands and it's typically `0x0014` for *Govee*. Use this command to list all row numbers:
+>
+> ``` shell
+> $ sudo gatttool -t random -b <govee-bluetooth-mac-address> --characteristics
+> ```
+>
+> 
+
+> [!TIP]
+>
+> `-t` option is required
+

@@ -12,6 +12,10 @@ const tvLaunchProfileTypeTvTypeMap =
   /** @type {Map<TvLaunchProfileType, TvType>} */ new Map();
 tvLaunchProfileTypeTvTypeMap.set('braviaLaunchProfile', 'BRAVIA');
 
+const ledLaunchProfileTypeLedTypeMap =
+  /** @type {Map<LedLaunchProfileType, LedType>} */ new Map();
+ledLaunchProfileTypeLedTypeMap.set('goveeLaunchProfile', 'GOVEE');
+
 module.exports = {
   mpdConfPath,
   mpdHost,
@@ -43,4 +47,5 @@ module.exports = {
   pauseRegExp: /pause/i,
   stopRegExp: /stop/i,
   tvLaunchProfileTypeTvTypeMap,
+  ledLaunchProfileTypeLedTypeMap,
 };
