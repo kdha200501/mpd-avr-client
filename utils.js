@@ -1081,6 +1081,10 @@ const AppStateService = function () {
 
       return (
         currentAppState.state === nextAppState.state &&
+        currentAppState.song === nextAppState.song &&
+        currentAppState.playlistlength === nextAppState.playlistlength &&
+        currentAppState.elapsed === nextAppState.elapsed &&
+        currentAppState.duration === nextAppState.duration &&
         currentAppState.repeat === nextAppState.repeat &&
         currentAppState.random === nextAppState.random
       );
