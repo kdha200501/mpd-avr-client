@@ -226,9 +226,9 @@ const AvrService = function (_appConfig, _cecClientProcess) {
     const updateOsd = (message) =>
       runCommand(`tx 15:47:${convertOsdToHex(message)}`);
 
-    const increaseGainByHalfDecibel = () => runCommand('volup');
+    const increaseVolume = () => runCommand('volup');
 
-    const decreaseGainByHalfDecibel = () => runCommand('voldown');
+    const decreaseVolume = () => runCommand('voldown');
 
     const requestAudioVolume = () => runCommand('tx 15:71');
 
@@ -321,18 +321,16 @@ const AvrService = function (_appConfig, _cecClientProcess) {
 
       const vector = Math.floor(audioVolumeOverride - audioVolumeInDecimal);
       const sign = Math.sign(vector);
-      length = Math.abs(vector) * 2; // note, gain can be adjusted 0.5 Decibel at a time
+      length = Math.abs(vector);
 
       /**
        * @desc Unfortunately, there is no way to set volume to a particular value using CEC, as a result, audio volume is adjusted one unit at a time
        */
       return from(Array.from({ length }).map(() => Math.max(sign, 0))).pipe(
         concatMap(
-          (increaseVolume) =>
+          (shouldIncrease) =>
             new Promise((resolve) => {
-              increaseVolume
-                ? increaseGainByHalfDecibel()
-                : decreaseGainByHalfDecibel();
+              shouldIncrease ? increaseVolume() : decreaseVolume();
               /**
                * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
                */
@@ -355,8 +353,8 @@ const AvrService = function (_appConfig, _cecClientProcess) {
       runCommand,
       requestPowerStatus,
       updateOsd,
-      increaseGainByHalfDecibel,
-      decreaseGainByHalfDecibel,
+      increaseVolume,
+      decreaseVolume,
       requestAudioVolume,
       setActiveSource,
       decodeAvrPowerStatus,

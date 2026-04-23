@@ -17,7 +17,7 @@ const { argv: appConfig } = require('yargs')
   .number('v')
   .describe(
     'v',
-    'Optionally set the audio volume when the AVR wakes up. Conversion from gain level to volume level can vary depending on the model. For Yamaha RX-V385, -43dB is 38.'
+    'Optionally set the audio volume (0-100) when the AVR wakes up. For Yamaha RX-V385, -43dB corresponds to 38.'
   )
   .alias('t', 'handOverAudioToTvCecCommand')
   .nargs('t', 1)
