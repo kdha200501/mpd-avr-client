@@ -35,6 +35,8 @@ The objectives of the project are to use
 
 
 
+Follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/trixie.md) to see a setup guide on Trixie
+
 
 
 # Usage
@@ -92,11 +94,9 @@ $ sudo mpd-avr-client
   -o, --osdMaxLength                 Specify the maximum number of characters
                                      that can be put on the OSD
                                                           [number] [default: 14]
-  -v, --audioVolumePreset            Optionally set the audio volume when the
-                                     AVR wakes up. Conversion from gain level to
-                                     volume level can vary depending on the
-                                     model. For Yamaha RX-V385, -43dB is 38.
-                                                                        [number]
+  -v, --audioVolumePreset            Optionally set the audio volume (0-100)
+                                     when the AVR wakes up. For Yamaha RX-V385,
+                                     -43dB corresponds to 38.           [number]
   -t, --handOverAudioToTvCecCommand  Optionally provide the CEC command for the
                                      AVR to switch audio source to a TV that is
                                      connected via a non-HDMI input, e.g. `tx
@@ -117,9 +117,50 @@ $ sudo mpd-avr-client
 
 
 
-##### Launch on boot
+##### Launch on startup
 
-Follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/daemon.md) to see an example
+```shell
+$ sudo touch /etc/systemd/system/mpd-avr-client.service
+$ sudo vim /etc/systemd/system/mpd-avr-client.service
+```
+
+Copy and paste:
+
+```shell
+[Unit]
+Description=MPD AVR Client Service
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+
+# We source nvm.sh to ensure the environment is ready, then launch the app with its flags
+ExecStart=/bin/bash -c '. /home/pi/.nvm/nvm.sh && mpd-avr-client -v 38 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
+
+Restart=always
+RestartSec=5
+
+# Logs go to journalctl -u mpd-avr-client
+StandardOutput=inherit
+StandardError=inherit
+
+[Install]
+WantedBy=multi-user.target
+```
+
+install service
+
+```shell
+$ sudo systemctl daemon-reload
+
+$ sudo systemctl enable mpd-avr-client
+$ sudo systemctl start mpd-avr-client
+$ sudo systemctl status mpd-avr-client
+```
+
+
 
 
 
