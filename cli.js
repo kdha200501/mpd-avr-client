@@ -102,7 +102,7 @@ const avrService = new AvrService(appConfig, cecClientProcess);
 const playlistService = new PlaylistService();
 const mpService = new MpService();
 const appStateService = new AppStateService();
-const appTerminator = new AppTerminator();
+const appTerminator = new AppTerminator(cecClientProcess, mpClientProcess);
 
 /**
  * @desc Scope members
