@@ -89,20 +89,17 @@ const {
 /**
  * @desc Protocol clients
  */
-const cecClientProcess = spawn('cec-client', ['-o', 'Loading...']); // read-write client
-const cecClient = new CecClient(cecClientProcess);
-
-const mpClientProcess = spawn('mpc', ['idleloop']); // read-only client
-const mpClient = new MpClient(mpClientProcess);
+const cecClient = new CecClient(); // read-write client
+const mpClient = new MpClient(); // read-only client
 
 /**
  * @desc Services
  */
-const avrService = new AvrService(appConfig, cecClientProcess);
+const avrService = new AvrService(appConfig, cecClient);
 const playlistService = new PlaylistService();
 const mpService = new MpService();
 const appStateService = new AppStateService();
-const appTerminator = new AppTerminator(cecClientProcess, mpClientProcess);
+const appTerminator = new AppTerminator(cecClient, mpClient);
 
 /**
  * @desc Scope members
@@ -112,7 +109,7 @@ const cecClientEvent$ = cecClient.publisher();
 const destroy$ = appTerminator.publisher();
 
 const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
-  scan(...new AvrPowerStatusReducer(appConfig, cecClientProcess)),
+  scan(...new AvrPowerStatusReducer(appConfig, cecClient)),
   filter(avrService.isAvrPowerStatusValid),
   take(1)
 );
@@ -139,7 +136,7 @@ const appStateChange$ = /** @type {Observable<AppState>} */ concat(
    */
   merge(cecClientEvent$, mpClientEvent$)
 ).pipe(
-  scan(...new AppStateReducer(appConfig, cecClientProcess)),
+  scan(...new AppStateReducer(appConfig, cecClient)),
   distinctUntilChanged(appStateService.isAppStateChanged),
   share()
 );
@@ -181,11 +178,11 @@ combineLatest(appStateChange$, initialAvrPowerStatusAndSubsequentPowerOn$)
     map(([appState]) => appState),
     takeUntil(destroy$)
   )
-  .subscribe(new AppStateRenderer(appConfig, cecClientProcess)); // update OSD according to application state change
+  .subscribe(new AppStateRenderer(appConfig, cecClient)); // update OSD according to application state change
 
 postInitialAvrPowerStatusCecClientEvent$
   .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
-  .subscribe(new PromptRenderer(appConfig, cecClientProcess)); // update OSD according to prompt
+  .subscribe(new PromptRenderer(appConfig, cecClient)); // update OSD according to prompt
 
 const { audioVolumePreset, handOverAudioToTvCecCommand } =
   /** @type AppConfig */ appConfig;
@@ -193,7 +190,7 @@ const { audioVolumePreset, handOverAudioToTvCecCommand } =
 if (audioVolumePreset !== undefined) {
   postInitialAvrPowerStatusCecClientEvent$
     .pipe(
-      scan(...new AvrWakeUpVolumeStatusReducer(appConfig, cecClientProcess)),
+      scan(...new AvrWakeUpVolumeStatusReducer(appConfig, cecClient)),
       filter(avrService.isAvrVolumeStatsValid),
       switchMap((avrVolumeStatus) =>
         avrService.adjustAudioVolume(avrVolumeStatus)
@@ -210,7 +207,7 @@ if (handOverAudioToTvCecCommand) {
   )
     .pipe(
       withLatestFrom(appStateChange$),
-      scan(...new AvrAudioSourceSwitchReducer(appConfig, cecClientProcess)),
+      scan(...new AvrAudioSourceSwitchReducer(appConfig, cecClient)),
       takeUntil(destroy$)
     )
     .subscribe(); // switch audio source

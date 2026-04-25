@@ -61,10 +61,14 @@ const {
   ledLaunchProfileTypeLedTypeMap,
 } = require('./const');
 
-const MpClient = function (_mpClientProcess) {
-  return ((mpClientProcess) => {
-    const mpClientEvent$ =
-      /** @type Observable<MpClientEvent> */ new Observable((subscriber) => {
+const MpClient = function () {
+  return (() => {
+    let mpClientProcess;
+
+    const mpClientEvent$ = /** @type Observable<MpClientEvent> */ defer(() => {
+      mpClientProcess = spawn('mpc', ['idleloop']);
+
+      return new Observable((subscriber) => {
         const source = 'mpClient';
         const onData = () =>
           new MpService()
@@ -100,18 +104,29 @@ const MpClient = function (_mpClientProcess) {
         mpClientProcess.on('close', onClose);
 
         return onUnsubscribe;
-      }).pipe(share());
+      });
+    }).pipe(share());
 
     const publisher = () => mpClientEvent$;
 
-    return { publisher };
-  })(_mpClientProcess);
+    const terminate = () => {
+      if (mpClientProcess) {
+        mpClientProcess.kill();
+      }
+    };
+
+    return { publisher, terminate };
+  })();
 };
 
-const CecClient = function (_cecClientProcess) {
-  return ((cecClientProcess) => {
-    const cecClientEvent$ =
-      /** @type Observable<CecClientEvent>*/ new Observable((subscriber) => {
+const CecClient = function () {
+  return (() => {
+    let cecClientProcess;
+
+    const cecClientEvent$ = /** @type Observable<CecClientEvent>*/ defer(() => {
+      cecClientProcess = spawn('cec-client', ['-o', 'Loading...']);
+
+      return new Observable((subscriber) => {
         const source = 'cecClient';
         const onData = (data) =>
           subscriber.next({
@@ -137,12 +152,25 @@ const CecClient = function (_cecClientProcess) {
         cecClientProcess.on('close', onClose);
 
         return onUnsubscribe;
-      }).pipe(share());
+      });
+    }).pipe(share());
 
     const publisher = () => cecClientEvent$;
 
-    return { publisher };
-  })(_cecClientProcess);
+    const terminate = () => {
+      if (cecClientProcess) {
+        cecClientProcess.kill();
+      }
+    };
+
+    const write = (command) => {
+      if (cecClientProcess) {
+        cecClientProcess.stdin.write(command);
+      }
+    };
+
+    return { publisher, terminate, write };
+  })();
 };
 
 const HttpClient = function () {
@@ -198,8 +226,8 @@ const HttpClient = function () {
   })();
 };
 
-const AvrService = function (_appConfig, _cecClientProcess) {
-  return ((appConfig, cecClientProcess) => {
+const AvrService = function (_appConfig, _cecClient) {
+  return ((appConfig, cecClient) => {
     const { osdMaxLength, audioVolumePreset } =
       /** @type AppConfig */ appConfig;
 
@@ -214,7 +242,7 @@ const AvrService = function (_appConfig, _cecClientProcess) {
      * @param {string} command A CEC command
      * @returns {void} No output
      */
-    const runCommand = (command) => void cecClientProcess.stdin.write(command);
+    const runCommand = (command) => void cecClient.write(command);
 
     const requestPowerStatus = () => runCommand('pow 5');
 
@@ -364,7 +392,7 @@ const AvrService = function (_appConfig, _cecClientProcess) {
       isAvrRequestDisplayName,
       adjustAudioVolume,
     };
-  })(_appConfig, _cecClientProcess);
+  })(_appConfig, _cecClient);
 };
 
 const PlaylistService = function () {
@@ -714,9 +742,9 @@ const MpService = function () {
   })();
 };
 
-const AvrPowerStatusReducer = function (_appConfig, _cecClientProcess) {
-  return ((appConfig, cecClientProcess) => {
-    const avrService = new AvrService(appConfig, cecClientProcess);
+const AvrPowerStatusReducer = function (_appConfig, _cecClient) {
+  return ((appConfig, cecClient) => {
+    const avrService = new AvrService(appConfig, cecClient);
 
     /**
      * Get the initial state
@@ -760,12 +788,12 @@ const AvrPowerStatusReducer = function (_appConfig, _cecClientProcess) {
       },
       getInitState(),
     ];
-  })(_appConfig, _cecClientProcess);
+  })(_appConfig, _cecClient);
 };
 
-const AvrWakeUpVolumeStatusReducer = function (_appConfig, _cecClientProcess) {
-  return ((appConfig, cecClientProcess) => {
-    const avrService = new AvrService(appConfig, cecClientProcess);
+const AvrWakeUpVolumeStatusReducer = function (_appConfig, _cecClient) {
+  return ((appConfig, cecClient) => {
+    const avrService = new AvrService(appConfig, cecClient);
 
     /**
      * Get the initial state
@@ -821,15 +849,15 @@ const AvrWakeUpVolumeStatusReducer = function (_appConfig, _cecClientProcess) {
       },
       getInitState(),
     ];
-  })(_appConfig, _cecClientProcess);
+  })(_appConfig, _cecClient);
 };
 
-const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
-  return ((appConfig, cecClientProcess) => {
+const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClient) {
+  return ((appConfig, cecClient) => {
     const { handOverAudioToTvCecCommand, audioVolumePresetForTv } =
       /** @type AppConfig */ appConfig;
 
-    const avrService = new AvrService(appConfig, cecClientProcess);
+    const avrService = new AvrService(appConfig, cecClient);
     const mpService = new MpService();
     const tvLaunchService = new TvLaunchService(appConfig);
     const ledLaunchService = new LedLaunchService(appConfig);
@@ -1023,7 +1051,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig, _cecClientProcess) {
       },
       getInitState(),
     ];
-  })(_appConfig, _cecClientProcess);
+  })(_appConfig, _cecClient);
 };
 
 const AppStateService = function () {
@@ -1092,23 +1120,18 @@ const AppStateService = function () {
   })();
 };
 
-const AppStateReducer = function (_appConfig, _cecClientProcess) {
-  return ((appConfig, cecClientProcess) => {
-    const avrService = new AvrService(appConfig, cecClientProcess);
+const AppStateReducer = function (_appConfig, _cecClient) {
+  return ((appConfig, cecClient) => {
+    const avrService = new AvrService(appConfig, cecClient);
     const mpService = new MpService();
 
     /**
      * Reaction to AVR power status change
-     * @param {ChildProcessWithoutNullStreams} cecClientProcess The API service for the AVR
      * @param {boolean} isAudioDeviceOn Whether the AVR is ON
      * @param {AppState} currentAppState The current application state
      * @returns {AppState} The next application state
      */
-    const onAvrPowerStatusChange = (
-      cecClientProcess,
-      isAudioDeviceOn,
-      currentAppState
-    ) => {
+    const onAvrPowerStatusChange = (isAudioDeviceOn, currentAppState) => {
       // if there is no change in the power status of the AVR
       if (isAudioDeviceOn === currentAppState.isAudioDeviceOn) {
         // then no-op
@@ -1375,11 +1398,7 @@ const AppStateReducer = function (_appConfig, _cecClientProcess) {
             );
 
             if (isAudioDeviceOn !== undefined) {
-              return onAvrPowerStatusChange(
-                cecClientProcess,
-                isAudioDeviceOn,
-                appState
-              );
+              return onAvrPowerStatusChange(isAudioDeviceOn, appState);
             }
 
             if (!appState.isAudioDeviceOn) {
@@ -1399,12 +1418,12 @@ const AppStateReducer = function (_appConfig, _cecClientProcess) {
       },
       undefined,
     ];
-  })(_appConfig, _cecClientProcess);
+  })(_appConfig, _cecClient);
 };
 
-const AppStateRenderer = function (_appConfig, _cecClientProcess) {
-  return ((appConfig, cecClientProcess) => {
-    const avrService = new AvrService(appConfig, cecClientProcess);
+const AppStateRenderer = function (_appConfig, _cecClient) {
+  return ((appConfig, cecClient) => {
+    const avrService = new AvrService(appConfig, cecClient);
 
     const rightShiftString = (str, shift) => {
       const { length } = str;
@@ -1452,12 +1471,12 @@ const AppStateRenderer = function (_appConfig, _cecClientProcess) {
       message = `[${rightShiftString(message, offset)}]`;
       return avrService.updateOsd(message);
     };
-  })(_appConfig, _cecClientProcess);
+  })(_appConfig, _cecClient);
 };
 
-const PromptRenderer = function (_appConfig, _cecClientProcess) {
-  return ((appConfig, cecClientProcess) => {
-    const avrService = new AvrService(appConfig, cecClientProcess);
+const PromptRenderer = function (_appConfig, _cecClient) {
+  return ((appConfig, cecClient) => {
+    const avrService = new AvrService(appConfig, cecClient);
 
     return ([cecClientEvent, appState]) => {
       const { data: cecTransmission } =
@@ -1497,18 +1516,18 @@ const PromptRenderer = function (_appConfig, _cecClientProcess) {
         return avrService.updateOsd(message);
       }
     };
-  })(_appConfig, _cecClientProcess);
+  })(_appConfig, _cecClient);
 };
 
-const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
-  return ((cecClientProcess, mpClientProcess) => {
+const AppTerminator = function (_cecClient, _mpClient) {
+  return ((cecClient, mpClient) => {
     const destroy$ = new Subject();
 
     const publisher = () => destroy$;
 
     const onExit = (isKillSignal = false) => {
-      cecClientProcess && cecClientProcess.kill();
-      mpClientProcess && mpClientProcess.kill();
+      cecClient?.terminate();
+      mpClient?.terminate();
 
       destroy$.next(null);
       destroy$.complete();
@@ -1521,7 +1540,7 @@ const AppTerminator = function (_cecClientProcess, _mpClientProcess) {
     };
 
     return { publisher, onExit };
-  })(_cecClientProcess, _mpClientProcess);
+  })(_cecClient, _mpClient);
 };
 
 const TvLaunchService = function (_appConfig) {
