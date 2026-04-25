@@ -6,7 +6,7 @@ const mpdHost = 'localhost';
 const mpdPortFallback = '6600';
 
 const getRxRegExp = (hex) =>
-  new RegExp(`^TRAFFIC:\\s*\\[\\s*(\\d+)\\s*\\]\\s*>>\\s*${hex}\\s*`, 'i');
+  new RegExp(`^TRAFFIC:\\s*\\[\\s*(\\d+)\\s*\\]\\s*>>\\s*${hex}\\s*`, 'im');
 
 const tvLaunchProfileTypeTvTypeMap =
   /** @type {Map<TvLaunchProfileType, TvType>} */ new Map();
