@@ -20,21 +20,19 @@ const {
   take,
 } = require('rxjs/operators');
 
-const {
-  CecClient,
-  MpClient,
-  AvrService,
-  AvrPowerStatusReducer,
-  AvrWakeUpVolumeStatusReducer,
-  AvrAudioSourceSwitchReducer,
-  PlaylistService,
-  MpService,
-  AppStateService,
-  AppStateReducer,
-  AppStateRenderer,
-  PromptRenderer,
-  AppTerminator,
-} = require('../utils');
+const { getInstance: getCecClient } = require('../src/clients/cec-client');
+const { getInstance: getMpClient } = require('../src/clients/mp-client');
+const AvrService = require('../src/services/avr-service');
+const AvrPowerStatusReducer = require('../src/reducers/avr-power-status-reducer');
+const AvrWakeUpVolumeStatusReducer = require('../src/reducers/avr-wake-up-volume-status-reducer');
+const AvrAudioSourceSwitchReducer = require('../src/reducers/avr-audio-source-switch-reducer');
+const PlaylistService = require('../src/services/playlist-service');
+const MpService = require('../src/services/mp-service');
+const AppStateService = require('../src/services/app-state-service');
+const AppStateReducer = require('../src/reducers/app-state-reducer');
+const AppStateRenderer = require('../src/renderers/app-state-renderer');
+const PromptRenderer = require('../src/renderers/prompt-renderer');
+const AppTerminator = require('../src/app-terminator');
 
 const describe = 'AVR as a MPD client';
 
@@ -94,17 +92,17 @@ module.exports = {
     /**
      * @desc Protocol clients
      */
-    const cecClient = new CecClient(); // read-write client
-    const mpClient = new MpClient(); // read-only client
+    const cecClient = getCecClient(); // read-write client
+    const mpClient = getMpClient(); // read-only client
 
     /**
      * @desc Services
      */
-    const avrService = new AvrService(appConfig, cecClient);
+    const avrService = new AvrService(appConfig);
     const playlistService = new PlaylistService();
     const mpService = new MpService();
     const appStateService = new AppStateService();
-    const appTerminator = new AppTerminator(cecClient, mpClient);
+    const appTerminator = new AppTerminator();
 
     /**
      * @desc Scope members
@@ -114,7 +112,7 @@ module.exports = {
     const destroy$ = appTerminator.publisher();
 
     const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
-      scan(...new AvrPowerStatusReducer(appConfig, cecClient)),
+      scan(...new AvrPowerStatusReducer(appConfig)),
       filter(avrService.isAvrPowerStatusValid),
       take(1)
     );
@@ -141,7 +139,7 @@ module.exports = {
        */
       merge(cecClientEvent$, mpClientEvent$)
     ).pipe(
-      scan(...new AppStateReducer(appConfig, cecClient)),
+      scan(...new AppStateReducer(appConfig)),
       distinctUntilChanged(appStateService.isAppStateChanged),
       share()
     );
@@ -183,11 +181,11 @@ module.exports = {
         map(([appState]) => appState),
         takeUntil(destroy$)
       )
-      .subscribe(new AppStateRenderer(appConfig, cecClient)); // update OSD according to application state change
+      .subscribe(new AppStateRenderer(appConfig)); // update OSD according to application state change
 
     postInitialAvrPowerStatusCecClientEvent$
       .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
-      .subscribe(new PromptRenderer(appConfig, cecClient)); // update OSD according to prompt
+      .subscribe(new PromptRenderer(appConfig)); // update OSD according to prompt
 
     const { audioVolumePreset, handOverAudioToTvCecCommand } =
       /** @type AppConfig */ appConfig;
@@ -195,7 +193,7 @@ module.exports = {
     if (audioVolumePreset !== undefined) {
       postInitialAvrPowerStatusCecClientEvent$
         .pipe(
-          scan(...new AvrWakeUpVolumeStatusReducer(appConfig, cecClient)),
+          scan(...new AvrWakeUpVolumeStatusReducer(appConfig)),
           filter(avrService.isAvrVolumeStatsValid),
           switchMap((avrVolumeStatus) =>
             avrService.adjustAudioVolume(avrVolumeStatus)
@@ -212,7 +210,7 @@ module.exports = {
       )
         .pipe(
           withLatestFrom(appStateChange$),
-          scan(...new AvrAudioSourceSwitchReducer(appConfig, cecClient)),
+          scan(...new AvrAudioSourceSwitchReducer(appConfig)),
           takeUntil(destroy$)
         )
         .subscribe(); // switch audio source
