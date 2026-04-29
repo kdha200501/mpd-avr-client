@@ -1,6 +1,6 @@
 const { spawn } = require('child_process');
-const { defer, Observable } = require('rxjs');
-const { share } = require('rxjs/operators');
+const { Observable, switchMap, Subject } = require('rxjs');
+const { startWith, takeUntil, share } = require('rxjs/operators');
 
 const MpService = require('../services/mp-service');
 
@@ -8,59 +8,68 @@ let instance;
 
 const MpClient = function () {
   return (() => {
-    let mpClientProcess;
+    const resetProcess$ = new Subject();
+    const destroyPublisher$ = new Subject();
+    const publishedMpClientEvent$ =
+      /** @type Observable<MpClientEvent> */ resetProcess$.pipe(
+        startWith(null),
+        switchMap(
+          () =>
+            new Observable((subscriber) => {
+              const source = 'mpClient';
+              const onData = () =>
+                new MpService()
+                  .getStatus()
+                  .then((data) =>
+                    subscriber.next({
+                      source,
+                      data,
+                    })
+                  )
+                  .catch((error) =>
+                    subscriber.next({
+                      source,
+                      data: error,
+                    })
+                  );
+              const onClose = (exitCode) => {
+                console.log(`mpc exited with code ${exitCode}\n`);
 
-    const mpClientEvent$ = /** @type Observable<MpClientEvent> */ defer(() => {
-      mpClientProcess = spawn('mpc', ['idleloop']);
+                if (exitCode === 0) {
+                  return subscriber.complete();
+                }
 
-      return new Observable((subscriber) => {
-        const source = 'mpClient';
-        const onData = () =>
-          new MpService()
-            .getStatus()
-            .then((data) =>
-              subscriber.next({
-                source,
-                data,
-              })
-            )
-            .catch((error) =>
-              subscriber.next({
-                source,
-                data: error,
-              })
-            );
-        const onClose = (exitCode) => {
-          console.log(`mpc exited with code ${exitCode}\n`);
+                subscriber.error(exitCode);
+              };
 
-          if (exitCode === 0) {
-            return subscriber.complete();
-          }
+              const mpClientProcess = spawn('mpc', ['idleloop']);
+              console.log(`mpc process started wid PID ${mpClientProcess.pid}`);
 
-          subscriber.error(exitCode);
-        };
-        const onUnsubscribe = () => {};
+              // emit next event
+              mpClientProcess.stdout.on('data', onData);
+              mpClientProcess.stderr.on('data', onData);
 
-        // emit next event
-        mpClientProcess.stdout.on('data', onData);
-        mpClientProcess.stderr.on('data', onData);
+              // emit complete and error event
+              mpClientProcess.on('close', onClose);
 
-        // emit complete and error event
-        mpClientProcess.on('close', onClose);
+              return () => mpClientProcess.kill();
+            })
+        ),
+        takeUntil(destroyPublisher$),
+        share()
+      );
 
-        return onUnsubscribe;
-      });
-    }).pipe(share());
+    const publisher = () => publishedMpClientEvent$;
 
-    const publisher = () => mpClientEvent$;
+    const reset = () => resetProcess$.next();
 
     const terminate = () => {
-      if (mpClientProcess) {
-        mpClientProcess.kill();
-      }
+      destroyPublisher$.next();
+      destroyPublisher$.complete();
+      resetProcess$.complete();
     };
 
-    return { publisher, terminate };
+    return { publisher, reset, terminate };
   })();
 };
 

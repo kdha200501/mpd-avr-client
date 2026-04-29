@@ -15,6 +15,7 @@ const {
 } = require('../../const');
 const AvrService = require('../services/avr-service');
 const MpService = require('../services/mp-service');
+const { getInstance: getMpClient } = require('../clients/mp-client');
 
 const AppStateReducer = function (_appConfig) {
   return ((appConfig) => {
@@ -42,6 +43,7 @@ const AppStateReducer = function (_appConfig) {
       // if the AVR turns on
       if (isAudioDeviceOn) {
         // then update the application state
+        getMpClient().reset();
         return {
           ...currentAppState,
           isAudioDeviceOn,
