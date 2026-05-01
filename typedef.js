@@ -1,3 +1,5 @@
+/** @typedef {import('rxjs').Observable} Observable */
+
 /**
  * @typedef {Object} AppConfig
  * @property {number} osdMaxLength
@@ -6,6 +8,21 @@
  * @property {number} audioVolumePresetForTv
  * @property {TvLaunchProfileType} braviaLaunchProfile
  * @property {LedLaunchProfileType} goveeLaunchProfile
+ */
+
+/**
+ * @typedef {Object} TVService
+ * @property {function(): boolean} isEnabled
+ * @property {function(): Observable} wakeAndLaunchApp
+ * @property {function(): Observable} standBy
+ * @property {function(CecTransmission): Observable} relayKeyEvent
+ */
+
+/**
+ * @typedef {Object} LedService
+ * @property {function(): boolean} isEnabled
+ * @property {function(): Observable} wake
+ * @property {function(): Observable} standBy
  */
 
 /**
@@ -112,6 +129,18 @@
  * @property {string} title
  * @property {string} uri
  * @property {string} icon
+ */
+
+/**
+ * @typedef {Object} BraviaRemoteControllerButton
+ * @property {string} name
+ * @property {string} value
+ */
+
+/**
+ * @typedef {Object} BraviaRemoteControllerMeta
+ * @property {boolean} bundled
+ * @property {string} type
  */
 
 /**

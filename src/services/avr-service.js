@@ -8,7 +8,7 @@ const {
   avrIsOnRegExp,
   avrIsStandByRegExp,
   volumeStatusRegExp,
-} = require('../../const');
+} = require('../const');
 const { getInstance: getCecClient } = require('../clients/cec-client');
 
 const AvrService = function (_appConfig) {

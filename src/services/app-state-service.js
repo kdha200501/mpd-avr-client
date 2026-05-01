@@ -1,4 +1,4 @@
-const { playOrPauseRegExp } = require('../../const');
+const { playOrPauseRegExp } = require('../const');
 
 const AppStateService = function () {
   return (() => {

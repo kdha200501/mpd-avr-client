@@ -16,7 +16,7 @@ const {
   mpdConfPath,
   playlistFilesBasePathSettingRegExp,
   playlistFoldersBasePathSettingRegExp,
-} = require('../../const');
+} = require('../const');
 
 const PlaylistService = function () {
   return (() => {

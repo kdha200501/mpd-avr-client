@@ -1,4 +1,4 @@
-const { playRegExp } = require('../../const');
+const { playRegExp } = require('../const');
 const AvrService = require('../services/avr-service');
 
 const AppStateRenderer = function (_appConfig) {

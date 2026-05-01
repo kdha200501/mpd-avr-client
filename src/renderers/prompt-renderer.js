@@ -5,7 +5,7 @@ const {
   pauseRegExp,
   redFunctionKeyupRegExp,
   greenFunctionKeyupRegExp,
-} = require('../../const');
+} = require('../const');
 const AvrService = require('../services/avr-service');
 
 const PromptRenderer = function (_appConfig) {

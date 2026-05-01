@@ -12,7 +12,7 @@ const {
   previousKeyupRegExp,
   redFunctionKeyupRegExp,
   greenFunctionKeyupRegExp,
-} = require('../../const');
+} = require('../const');
 const AvrService = require('../services/avr-service');
 const MpService = require('../services/mp-service');
 const { getInstance: getMpClient } = require('../clients/mp-client');

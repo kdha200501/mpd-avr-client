@@ -27,6 +27,8 @@ module.exports = {
   avrIsStandByRegExp: getRxRegExp('51:90:01'),
   arrowUpKeyupRegExp: getRxRegExp('51:44:02'),
   arrowDownKeyupRegExp: getRxRegExp('51:44:01'),
+  arrowLeftKeyupRegExp: getRxRegExp('51:44:03'),
+  arrowRightKeyupRegExp: getRxRegExp('51:44:04'),
   enterKeyupRegExp: getRxRegExp('51:44:00'),
   returnKeyupRegExp: getRxRegExp('51:44:0d'),
   playKeyupRegExp: getRxRegExp('51:44:44'),

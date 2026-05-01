@@ -1,11 +1,11 @@
 const { of } = require('rxjs');
 const { delay, switchMap, take } = require('rxjs/operators');
 
-const { blueFunctionKeyupRegExp, playRegExp } = require('../../const');
+const { blueFunctionKeyupRegExp, playRegExp } = require('../const');
 const AvrService = require('../services/avr-service');
 const MpService = require('../services/mp-service');
-const TvLaunchService = require('../services/tv-launch-service');
-const LedLaunchService = require('../services/led-launch-service');
+const tvServiceFactory = require('../services/tv-service-factory');
+const ledServiceFactory = require('../services/led-service-factory');
 
 const AvrAudioSourceSwitchReducer = function (_appConfig) {
   return ((appConfig) => {
@@ -14,8 +14,8 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
 
     const avrService = new AvrService(appConfig);
     const mpService = new MpService();
-    const tvLaunchService = new TvLaunchService(appConfig);
-    const ledLaunchService = new LedLaunchService(appConfig);
+    const tvService = tvServiceFactory(appConfig);
+    const ledService = ledServiceFactory(appConfig);
 
     /**
      * Get the initial state
@@ -61,12 +61,12 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
     const switchingAudioSource = (avrVolumeStatus) => {
       avrService.runCommand(handOverAudioToTvCecCommand);
 
-      if (tvLaunchService.isEnabled()) {
-        tvLaunchService.wakeAndLaunchApp().subscribe();
+      if (tvService.isEnabled()) {
+        tvService.wakeAndLaunchApp().subscribe();
       }
 
-      if (ledLaunchService.isEnabled()) {
-        ledLaunchService.wake().subscribe();
+      if (ledService.isEnabled()) {
+        ledService.wake().subscribe();
       }
 
       if (audioVolumePresetForTv !== undefined) {
@@ -112,11 +112,16 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
             // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
             if (isAudioDeviceOn === false) {
               // then reset the reducer and request the TV and LED strip to go to standby
-              tvLaunchService.isEnabled() &&
-                tvLaunchService.standBy().subscribe();
-              ledLaunchService.isEnabled() &&
-                ledLaunchService.standBy().subscribe();
+              tvService.isEnabled() && tvService.standBy().subscribe();
+              ledService.isEnabled() && ledService.standBy().subscribe();
               return getInitState();
+            }
+
+            if (fromMpStatusState && toMpStatusState) {
+              const { data: cecTransmission } = cecClientEvent;
+              tvService.isEnabled() &&
+                tvService.relayKeyEvent(cecTransmission).subscribe();
+              return acc;
             }
 
             // if the CEC transmission is not regarding audio turning off, and

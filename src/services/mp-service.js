@@ -8,7 +8,7 @@ const {
   mpdHost,
   mpdPortFallback,
   mpdPortSettingRegExp,
-} = require('../../const');
+} = require('../const');
 
 const MpService = function () {
   return (() => {
