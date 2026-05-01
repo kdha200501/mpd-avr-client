@@ -119,6 +119,12 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
               return getInitState();
             }
 
+            if (fromMpStatusState && toMpStatusState) {
+              // TODO: verify if this is a good check if audio is handed over to TV
+              // TODO: if so, update plan to use this `if` block to handle key event
+              return acc;
+            }
+
             // if the CEC transmission is not regarding audio turning off, and
             // if the reducer is waiting for MP to respond to playback pause request
             if (fromMpStatusState && !toMpStatusState) {
