@@ -46,7 +46,13 @@ const MpService = function () {
     const handShakeAndSendCommands = (host, port, commands) =>
       new Promise((resolve, reject) => {
         const socket = /** @type Socket */ connect({ host, port });
+        socket.setTimeout(5000);
         let connectReturnCode;
+
+        socket.on('timeout', () => {
+          socket.destroy();
+          reject(new Error('MPD connection timed out'));
+        });
 
         socket.on('data', (data) => {
           let dataLines = data.toString().trim().split('\n');
