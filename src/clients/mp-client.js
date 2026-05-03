@@ -1,75 +1,114 @@
 const { spawn } = require('child_process');
-const { Observable, switchMap, Subject } = require('rxjs');
-const { startWith, takeUntil, share } = require('rxjs/operators');
+const find = require('find-process');
+const {
+  Observable,
+  Subject,
+  timer,
+  from,
+  throwError,
+  concat,
+  of,
+  EMPTY,
+} = require('rxjs');
+const {
+  startWith,
+  concatMap,
+  switchMap,
+  first,
+  takeUntil,
+  ignoreElements,
+  share,
+  catchError,
+} = require('rxjs/operators');
 
 const MpService = require('../services/mp-service');
 
 let instance;
 
+const pollMpcProcess = () =>
+  timer(0, 500).pipe(
+    switchMap(() => from(find('name', 'mpc idleloop'))),
+    switchMap((list, index) => {
+      // if there is no existing mpc process
+      if (!list.length) {
+        // then skip polling
+        return of(true);
+      }
+
+      // if there is existing mpc process, and
+      // if the maximum number of poll has not been reached
+      if (index < 5) {
+        // then continue polling
+        return EMPTY;
+      }
+
+      // if there is existing mpc process, and
+      // if the maximum number of poll has been reached,
+      // then give up on polling
+      return throwError(
+        () => new Error('OS_RESOURCE_LOCK: mpc failed to exit.')
+      );
+    }),
+    first(),
+    ignoreElements()
+  );
+
 const MpClient = function () {
   return (() => {
     const resetProcess$ = new Subject();
-    const destroyPublisher$ = new Subject();
-    const publishedMpClientEvent$ =
-      /** @type Observable<MpClientEvent> */ resetProcess$.pipe(
-        startWith(null),
-        switchMap(
-          () =>
-            new Observable((subscriber) => {
-              const source = 'mpClient';
-              const onData = () =>
-                new MpService()
-                  .getStatus()
-                  .then((data) =>
-                    subscriber.next({
-                      source,
-                      data,
-                    })
-                  )
-                  .catch((error) =>
-                    subscriber.next({
-                      source,
-                      data: error,
-                    })
-                  );
-              const onClose = (exitCode) => {
-                console.log(`mpc exited with code ${exitCode}\n`);
+    const killSignal$ = new Subject();
 
-                if (exitCode === 0) {
-                  return subscriber.complete();
-                }
+    const spawnMpc = () =>
+      new Observable((subscriber) => {
+        const source = 'mpClient';
+        const mpService = new MpService();
 
-                subscriber.error(exitCode);
-              };
+        const onData = () =>
+          mpService
+            .getStatus()
+            .then((data) => subscriber.next({ source, data }))
+            .catch((error) => subscriber.next({ source, data: error }));
 
-              const mpClientProcess = spawn('mpc', ['idleloop']);
-              console.log(`mpc process started wid PID ${mpClientProcess.pid}`);
+        const mpClientProcess = spawn('mpc', ['idleloop']);
+        console.log(`mpc process started wid PID ${mpClientProcess.pid}`);
 
-              // emit next event
-              mpClientProcess.stdout.on('data', onData);
-              mpClientProcess.stderr.on('data', onData);
+        mpClientProcess.stdout.on('data', onData);
+        mpClientProcess.stderr.on('data', onData);
 
-              // emit complete and error event
-              mpClientProcess.on('close', onClose);
+        return () => {
+          console.log(`SIGKILL mpc process with PID ${mpClientProcess.pid}`);
+          mpClientProcess.stdout.removeAllListeners();
+          mpClientProcess.stderr.removeAllListeners();
+          mpClientProcess.removeAllListeners('close');
+          mpClientProcess.kill('SIGKILL');
+        };
+      }).pipe(takeUntil(killSignal$));
 
-              return () => mpClientProcess.kill();
-            })
-        ),
-        takeUntil(destroyPublisher$),
-        share()
+    const respawnMpc = () =>
+      concat(pollMpcProcess(), spawnMpc()).pipe(
+        catchError((err) => {
+          console.error(`[Fatal] Spawn cancelled: ${err.message}`);
+          return EMPTY;
+        })
       );
 
-    const publisher = () => publishedMpClientEvent$;
+    const publishedMpClientEvent$ = resetProcess$.pipe(
+      startWith(null),
+      concatMap(respawnMpc),
+      share()
+    );
 
-    const reset = () => resetProcess$.next();
-
-    const terminate = () => {
-      destroyPublisher$.next();
-      destroyPublisher$.complete();
-      resetProcess$.complete();
+    return {
+      publisher: () => publishedMpClientEvent$,
+      reset: () => {
+        killSignal$.next();
+        resetProcess$.next();
+      },
+      terminate: () => {
+        killSignal$.next();
+        resetProcess$.complete();
+      },
     };
-
-    return { publisher, reset, terminate };
   })();
 };
 
