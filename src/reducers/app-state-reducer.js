@@ -17,6 +17,12 @@ const AvrService = require('../services/avr-service');
 const MpService = require('../services/mp-service');
 const { getInstance: getMpClient } = require('../clients/mp-client');
 
+/**
+ * @desc The AVR sends a display name request (51:46) when powering on.
+ *       After overnight sleep, this may be the ONLY power-on indicator
+ *       received before explicit power status codes (5f:72:01 / 51:90:00).
+ */
+
 const AppStateReducer = function (_appConfig) {
   return ((appConfig) => {
     const avrService = new AvrService(appConfig);
@@ -300,6 +306,10 @@ const AppStateReducer = function (_appConfig) {
 
             if (isAudioDeviceOn !== undefined) {
               return onAvrPowerStatusChange(isAudioDeviceOn, appState);
+            }
+
+            if (avrService.isAvrRequestDisplayName(event)) {
+              return onAvrPowerStatusChange(true, appState);
             }
 
             if (!appState.isAudioDeviceOn) {
