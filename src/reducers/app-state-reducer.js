@@ -135,7 +135,7 @@ const AppStateReducer = function (_appConfig) {
           return {
             ...currentAppState,
             playlistIdx:
-              (playlists.length + playlistIdx - 1) % playlists.length,
+              (playlists.length + playlistIdx + 1) % playlists.length,
           };
         }
 
@@ -146,7 +146,7 @@ const AppStateReducer = function (_appConfig) {
           return {
             ...currentAppState,
             playlistIdx:
-              (playlists.length + playlistIdx + 1) % playlists.length,
+              (playlists.length + playlistIdx - 1) % playlists.length,
           };
         }
 
