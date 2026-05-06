@@ -117,12 +117,15 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
               return getInitState();
             }
 
-            if (fromMpStatusState && toMpStatusState) {
-              const { data: cecTransmission } = cecClientEvent;
-              tvService.isEnabled() &&
-                tvService.relayKeyEvent(cecTransmission).subscribe();
-              return acc;
-            }
+            /**
+             * @desc Unfortunately, the AVR ceases to deliver CEC log to cec-client when the audio is handed to optical audio port
+             */
+            // if (fromMpStatusState && toMpStatusState) {
+            //   const { data: cecTransmission } = cecClientEvent;
+            //   tvService.isEnabled() &&
+            //     tvService.relayKeyEvent(cecTransmission).subscribe();
+            //   return acc;
+            // }
 
             // if the CEC transmission is not regarding audio turning off, and
             // if the reducer is waiting for MP to respond to playback pause request
