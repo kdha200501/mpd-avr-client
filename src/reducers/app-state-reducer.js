@@ -35,9 +35,9 @@ const AppStateReducer = function (_appConfig) {
      * @returns {AppState} The next application state
      */
     const onAvrPowerStatusChange = (isAudioDeviceOn, currentAppState) => {
-      if (isAudioDeviceOn) {
-        getMpClient().reset();
-      }
+      // if (isAudioDeviceOn) {
+      //   getMpClient().reset();
+      // }
 
       // if there is no change in the power status of the AVR
       if (isAudioDeviceOn === currentAppState.isAudioDeviceOn) {
