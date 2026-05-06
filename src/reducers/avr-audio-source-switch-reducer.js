@@ -62,11 +62,11 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
       avrService.runCommand(handOverAudioToTvCecCommand);
 
       if (tvService.isEnabled()) {
-        tvService.wakeAndLaunchApp().subscribe();
+        tvService.wakeAndLaunchApp();
       }
 
       if (ledService.isEnabled()) {
-        ledService.wake().subscribe();
+        ledService.wake();
       }
 
       if (audioVolumePresetForTv !== undefined) {
@@ -112,8 +112,8 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
             // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
             if (isAudioDeviceOn === false) {
               // then reset the reducer and request the TV and LED strip to go to standby
-              tvService.isEnabled() && tvService.standBy().subscribe();
-              ledService.isEnabled() && ledService.standBy().subscribe();
+              tvService.isEnabled() && tvService.standBy();
+              ledService.isEnabled() && ledService.standBy();
               return getInitState();
             }
 
@@ -123,7 +123,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
             // if (fromMpStatusState && toMpStatusState) {
             //   const { data: cecTransmission } = cecClientEvent;
             //   tvService.isEnabled() &&
-            //     tvService.relayKeyEvent(cecTransmission).subscribe();
+            //     tvService.relayKeyEvent(cecTransmission);
             //   return acc;
             // }
 
