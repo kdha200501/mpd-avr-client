@@ -93,7 +93,7 @@ module.exports = {
      * @desc Protocol clients
      */
     const cecClient = getCecClient(); // read-write client
-    const mpClient = getMpClient(); // read-only client
+    const mpClient = getMpClient(); // read-write client
 
     /**
      * @desc Services

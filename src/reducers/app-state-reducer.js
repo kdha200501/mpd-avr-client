@@ -15,7 +15,7 @@ const {
 } = require('../const');
 const AvrService = require('../services/avr-service');
 const MpService = require('../services/mp-service');
-const { getInstance: getMpClient } = require('../clients/mp-client');
+// const { getInstance: getMpClient } = require('../clients/mp-client');
 
 /**
  * @desc The AVR sends a display name request (51:46) when powering on.
