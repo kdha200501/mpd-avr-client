@@ -1,5 +1,5 @@
-const { of } = require('rxjs');
-const { delay, switchMap, take } = require('rxjs/operators');
+const { of, defer, concat, timer } = require('rxjs');
+const { delay } = require('rxjs/operators');
 
 const { blueFunctionKeyupRegExp, playRegExp } = require('../const');
 const AvrService = require('../services/avr-service');
@@ -59,33 +59,38 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
      * @returns {void} No output
      */
     const switchingAudioSource = (avrVolumeStatus) => {
-      avrService.runCommand(handOverAudioToTvCecCommand);
+      /**
+       * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
+       */
 
-      if (tvService.isEnabled()) {
-        tvService.wakeAndLaunchApp();
-      }
+      const handOverAudioToTv$ = defer(() => {
+        avrService.runCommand(handOverAudioToTvCecCommand);
+        return timer(500);
+      });
 
-      if (ledService.isEnabled()) {
-        ledService.wake();
-      }
+      const wakeAndLaunchApp$ = defer(() =>
+        tvService.isEnabled() ? tvService.wakeAndLaunchApp() : of(null)
+      ).pipe(delay(tvService.isEnabled() ? 500 : 0));
 
-      if (audioVolumePresetForTv !== undefined) {
-        of(audioVolumePresetForTv)
-          .pipe(
-            /**
-             * @desc Unfortunately, there is a limitation to how frequently commands can be transmitted to the AVR, some magic number is used here
-             */
-            delay(500),
-            switchMap(() =>
-              avrService.adjustAudioVolume(
-                avrVolumeStatus,
-                audioVolumePresetForTv
-              )
-            ),
-            take(1)
-          )
-          .subscribe();
-      }
+      const ledWake$ = defer(() =>
+        ledService.isEnabled() ? ledService.wake() : of(null)
+      ).pipe(delay(ledService.isEnabled() ? 500 : 0));
+
+      const adjustVolume$ = defer(() =>
+        audioVolumePresetForTv === undefined
+          ? of(null)
+          : avrService.adjustAudioVolume(
+              avrVolumeStatus,
+              audioVolumePresetForTv
+            )
+      );
+
+      concat(
+        handOverAudioToTv$,
+        wakeAndLaunchApp$,
+        ledWake$,
+        adjustVolume$
+      ).subscribe();
     };
 
     /**
@@ -112,8 +117,8 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
             // if the CEC transmission is regarding audio turning off (i.e. the AVR goes to stand-by mode)
             if (isAudioDeviceOn === false) {
               // then reset the reducer and request the TV and LED strip to go to standby
-              tvService.isEnabled() && tvService.standBy();
-              ledService.isEnabled() && ledService.standBy();
+              tvService.isEnabled() && tvService.standBy().subscribe();
+              ledService.isEnabled() && ledService.standBy().subscribe();
               return getInitState();
             }
 
@@ -123,7 +128,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
             // if (fromMpStatusState && toMpStatusState) {
             //   const { data: cecTransmission } = cecClientEvent;
             //   tvService.isEnabled() &&
-            //     tvService.relayKeyEvent(cecTransmission);
+            //     tvService.relayKeyEvent(cecTransmission).subscribe();
             //   return acc;
             // }
 

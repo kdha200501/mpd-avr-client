@@ -41,74 +41,70 @@ const GoveeService = function (_ledLaunchProfilePath) {
     }
 
     const wake = () =>
-      ledLaunchProfile$
-        .pipe(
-          switchMap(
-            ({ macAddress, rowNumberHex }) =>
-              new Promise((resolve) => {
-                const child = spawn('gatttool', [
-                  '-t',
-                  'random',
-                  '-b',
-                  macAddress,
-                  '--char-write-req',
-                  '-a',
-                  rowNumberHex,
-                  '-n',
-                  generateGoveePowerPayload(true),
-                ]);
+      ledLaunchProfile$.pipe(
+        switchMap(
+          ({ macAddress, rowNumberHex }) =>
+            new Promise((resolve) => {
+              const child = spawn('gatttool', [
+                '-t',
+                'random',
+                '-b',
+                macAddress,
+                '--char-write-req',
+                '-a',
+                rowNumberHex,
+                '-n',
+                generateGoveePowerPayload(true),
+              ]);
 
-                child.on('close', () => resolve(null));
-                child.on('error', () => resolve(null));
+              child.on('close', () => resolve(null));
+              child.on('error', () => resolve(null));
 
-                /**
-                 * @desc kill process if the LED strip is paired to another device
-                 */
-                setTimeout(() => {
-                  child && child.kill();
-                  resolve(null);
-                }, 1000);
-              })
-          ),
-          catchError(() => of(null)),
-          take(1)
-        )
-        .subscribe();
+              /**
+               * @desc kill process if the LED strip is paired to another device
+               */
+              setTimeout(() => {
+                child && child.kill();
+                resolve(null);
+              }, 1000);
+            })
+        ),
+        catchError(() => of(null)),
+        take(1)
+      );
 
     const standBy = () =>
-      ledLaunchProfile$
-        .pipe(
-          switchMap(
-            ({ macAddress, rowNumberHex }) =>
-              new Promise((resolve) => {
-                const child = spawn('gatttool', [
-                  '-t',
-                  'random',
-                  '-b',
-                  macAddress,
-                  '--char-write-req',
-                  '-a',
-                  rowNumberHex,
-                  '-n',
-                  generateGoveePowerPayload(false),
-                ]);
+      ledLaunchProfile$.pipe(
+        switchMap(
+          ({ macAddress, rowNumberHex }) =>
+            new Promise((resolve) => {
+              const child = spawn('gatttool', [
+                '-t',
+                'random',
+                '-b',
+                macAddress,
+                '--char-write-req',
+                '-a',
+                rowNumberHex,
+                '-n',
+                generateGoveePowerPayload(false),
+              ]);
 
-                child.on('close', () => resolve(null));
-                child.on('error', () => resolve(null));
+              child.on('close', () => resolve(null));
+              child.on('error', () => resolve(null));
 
-                /**
-                 * @desc kill process if the LED strip is paired to another device
-                 */
-                setTimeout(() => {
-                  child && child.kill();
-                  resolve(null);
-                }, 1000);
-              })
-          ),
-          catchError(() => of(null)),
-          take(1)
-        )
-        .subscribe();
+              /**
+               * @desc kill process if the LED strip is paired to another device
+               */
+              setTimeout(() => {
+                child && child.kill();
+                resolve(null);
+              }, 1000);
+            })
+        ),
+        catchError(() => of(null)),
+        take(1)
+      );
 
     return {
       wake,
