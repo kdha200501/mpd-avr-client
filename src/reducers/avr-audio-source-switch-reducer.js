@@ -65,16 +65,16 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
 
       const handOverAudioToTv$ = defer(() => {
         avrService.runCommand(handOverAudioToTvCecCommand);
-        return timer(500);
+        return of(null);
       });
 
       const wakeAndLaunchApp$ = defer(() =>
         tvService.isEnabled() ? tvService.wakeAndLaunchApp() : of(null)
-      ).pipe(delay(tvService.isEnabled() ? 500 : 0));
+      );
 
       const ledWake$ = defer(() =>
         ledService.isEnabled() ? ledService.wake() : of(null)
-      ).pipe(delay(ledService.isEnabled() ? 500 : 0));
+      );
 
       const adjustVolume$ = defer(() =>
         audioVolumePresetForTv === undefined
@@ -86,9 +86,13 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
       );
 
       concat(
+        timer(3000),
         handOverAudioToTv$,
+        timer(1000),
         wakeAndLaunchApp$,
+        timer(tvService.isEnabled() ? 500 : 0),
         ledWake$,
+        timer(ledService.isEnabled() ? 500 : 0),
         adjustVolume$
       ).subscribe();
     };
