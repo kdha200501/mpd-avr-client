@@ -1,7 +1,9 @@
 const { readFile } = require('fs');
-const { spawn } = require('child_process');
 const { Observable, of } = require('rxjs');
 const { take, shareReplay, switchMap, catchError } = require('rxjs/operators');
+const {
+  getInstance: getBluetoothClient,
+} = require('../clients/bluetooth-client');
 
 const GoveeService = function (_ledLaunchProfilePath) {
   return ((ledLaunchProfilePath) => {
@@ -42,32 +44,12 @@ const GoveeService = function (_ledLaunchProfilePath) {
 
     const wake = () =>
       ledLaunchProfile$.pipe(
-        switchMap(
-          ({ macAddress, rowNumberHex }) =>
-            new Promise((resolve) => {
-              const child = spawn('gatttool', [
-                '-t',
-                'random',
-                '-b',
-                macAddress,
-                '--char-write-req',
-                '-a',
-                rowNumberHex,
-                '-n',
-                generateGoveePowerPayload(true),
-              ]);
-
-              child.on('close', () => resolve(null));
-              child.on('error', () => resolve(null));
-
-              /**
-               * @desc kill process if the LED strip is paired to another device
-               */
-              setTimeout(() => {
-                child && child.kill();
-                resolve(null);
-              }, 1000);
-            })
+        switchMap(({ macAddress, rowNumberHex }) =>
+          getBluetoothClient().write(
+            macAddress,
+            rowNumberHex,
+            generateGoveePowerPayload(true)
+          )
         ),
         catchError(() => of(null)),
         take(1)
@@ -75,32 +57,12 @@ const GoveeService = function (_ledLaunchProfilePath) {
 
     const standBy = () =>
       ledLaunchProfile$.pipe(
-        switchMap(
-          ({ macAddress, rowNumberHex }) =>
-            new Promise((resolve) => {
-              const child = spawn('gatttool', [
-                '-t',
-                'random',
-                '-b',
-                macAddress,
-                '--char-write-req',
-                '-a',
-                rowNumberHex,
-                '-n',
-                generateGoveePowerPayload(false),
-              ]);
-
-              child.on('close', () => resolve(null));
-              child.on('error', () => resolve(null));
-
-              /**
-               * @desc kill process if the LED strip is paired to another device
-               */
-              setTimeout(() => {
-                child && child.kill();
-                resolve(null);
-              }, 1000);
-            })
+        switchMap(({ macAddress, rowNumberHex }) =>
+          getBluetoothClient().write(
+            macAddress,
+            rowNumberHex,
+            generateGoveePowerPayload(false)
+          )
         ),
         catchError(() => of(null)),
         take(1)
