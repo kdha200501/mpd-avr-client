@@ -44,17 +44,28 @@ const AvrWakeUpVolumeStatusReducer = function (_appConfig) {
 
         // if the CEC transmission is not regarding audio turning off, and
         // if the CEC transmission is not regarding audio turning on, and
+        // if a request for the audio volume status was not made,
+        if (!length) {
+          // then no-op
+          return acc;
+        }
+
+        const [avrVolumeStatusValue] = /** @type AvrVolumeStatus */ acc;
+
+        // if the CEC transmission is not regarding audio turning off, and
+        // if the CEC transmission is not regarding audio turning on, and
         // if a request for the audio volume status was made
-        if (length) {
+        if (avrVolumeStatusValue === undefined) {
           // then decode the CEC transmission
           return avrService.decodeAvrVolumeStatus(cecClientEvent);
         }
 
         // if the CEC transmission is not regarding audio turning off, and
         // if the CEC transmission is not regarding audio turning on, and
-        // if a request for the audio volume status was not made,
-        // then no-op
-        return acc;
+        // if a request for the audio volume status was made, and
+        // if the audio volume status response was received,
+        // then reset the reducer
+        return getInitState();
       },
       getInitState(),
     ];
