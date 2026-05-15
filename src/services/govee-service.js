@@ -43,30 +43,34 @@ const GoveeService = function (_ledLaunchProfilePath) {
     }
 
     const wake = () =>
-      ledLaunchProfile$.pipe(
-        switchMap(({ macAddress, rowNumberHex }) =>
-          getBluetoothClient().write(
-            macAddress,
-            rowNumberHex,
-            generateGoveePowerPayload(true)
-          )
-        ),
-        catchError(() => of(null)),
-        take(1)
-      );
+      ledLaunchProfile$
+        .pipe(
+          switchMap(({ macAddress, rowNumberHex }) =>
+            getBluetoothClient().write(
+              macAddress,
+              rowNumberHex,
+              generateGoveePowerPayload(true)
+            )
+          ),
+          catchError(() => of(null)),
+          take(1)
+        )
+        .subscribe();
 
     const standBy = () =>
-      ledLaunchProfile$.pipe(
-        switchMap(({ macAddress, rowNumberHex }) =>
-          getBluetoothClient().write(
-            macAddress,
-            rowNumberHex,
-            generateGoveePowerPayload(false)
-          )
-        ),
-        catchError(() => of(null)),
-        take(1)
-      );
+      ledLaunchProfile$
+        .pipe(
+          switchMap(({ macAddress, rowNumberHex }) =>
+            getBluetoothClient().write(
+              macAddress,
+              rowNumberHex,
+              generateGoveePowerPayload(false)
+            )
+          ),
+          catchError(() => of(null)),
+          take(1)
+        )
+        .subscribe();
 
     return {
       wake,

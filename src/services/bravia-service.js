@@ -130,22 +130,24 @@ const BraviaService = function (_tvLaunchProfilePath) {
       );
 
     const standBy = () =>
-      tvLaunchProfile$.pipe(
-        switchMap(({ hostname, preSharedKey }) =>
-          httpClient.post(
-            hostname,
-            '/sony/system',
-            {
-              ...braviaPayloadBase,
-              method: 'setPowerStatus',
-              params: [{ status: false }],
-            },
-            preSharedKey && { 'X-Auth-PSK': preSharedKey }
-          )
-        ),
-        catchError(() => of({})),
-        take(1)
-      );
+      tvLaunchProfile$
+        .pipe(
+          switchMap(({ hostname, preSharedKey }) =>
+            httpClient.post(
+              hostname,
+              '/sony/system',
+              {
+                ...braviaPayloadBase,
+                method: 'setPowerStatus',
+                params: [{ status: false }],
+              },
+              preSharedKey && { 'X-Auth-PSK': preSharedKey }
+            )
+          ),
+          catchError(() => of({})),
+          take(1)
+        )
+        .subscribe();
 
     const launchApp = (uri) =>
       tvLaunchProfile$.pipe(
@@ -166,23 +168,25 @@ const BraviaService = function (_tvLaunchProfilePath) {
       );
 
     const wakeAndLaunchApp = () =>
-      forkJoin(getAppTitle(), braviaAppMap$).pipe(
-        switchMap(([appTitle, braviaAppMap]) => {
-          if (!appTitle) {
-            return wake();
-          }
+      forkJoin(getAppTitle(), braviaAppMap$)
+        .pipe(
+          switchMap(([appTitle, braviaAppMap]) => {
+            if (!appTitle) {
+              return wake();
+            }
 
-          const { uri } =
-            /** @type BraviaApp */ braviaAppMap.get(appTitle) || {};
+            const { uri } =
+              /** @type BraviaApp */ braviaAppMap.get(appTitle) || {};
 
-          if (!uri) {
-            return wake();
-          }
+            if (!uri) {
+              return wake();
+            }
 
-          return concat(wake(), launchApp(uri));
-        }),
-        takeLast(1)
-      );
+            return concat(wake(), launchApp(uri));
+          }),
+          takeLast(1)
+        )
+        .subscribe();
 
     const getIrccButtonName = (cecTransmission) => {
       if (arrowUpKeyupRegExp.test(cecTransmission)) {
@@ -257,24 +261,26 @@ const BraviaService = function (_tvLaunchProfilePath) {
       );
 
     const relayKeyEvent = (cecTransmission) =>
-      keyCommandMap$.pipe(
-        switchMap((keyCommandMap) => {
-          const irccButtonName = getIrccButtonName(cecTransmission);
+      keyCommandMap$
+        .pipe(
+          switchMap((keyCommandMap) => {
+            const irccButtonName = getIrccButtonName(cecTransmission);
 
-          if (!irccButtonName) {
-            return of(null);
-          }
+            if (!irccButtonName) {
+              return of(null);
+            }
 
-          const command = keyCommandMap.get(irccButtonName);
+            const command = keyCommandMap.get(irccButtonName);
 
-          if (!command) {
-            return of(null);
-          }
+            if (!command) {
+              return of(null);
+            }
 
-          return sendIrcc(command);
-        }),
-        take(1)
-      );
+            return sendIrcc(command);
+          }),
+          take(1)
+        )
+        .subscribe();
 
     return {
       standBy,

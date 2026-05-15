@@ -13,16 +13,16 @@
 /**
  * @typedef {Object} TVService
  * @property {function(): boolean} isEnabled
- * @property {function(): Observable} wakeAndLaunchApp
- * @property {function(): Observable} standBy
- * @property {function(CecTransmission): Observable} relayKeyEvent
+ * @property {function(): void} wakeAndLaunchApp
+ * @property {function(): void} standBy
+ * @property {function(CecTransmission): void} relayKeyEvent
  */
 
 /**
  * @typedef {Object} LedService
  * @property {function(): boolean} isEnabled
- * @property {function(): Observable} wake
- * @property {function(): Observable} standBy
+ * @property {function(): void} wake
+ * @property {function(): void} standBy
  */
 
 /**
