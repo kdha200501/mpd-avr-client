@@ -32,8 +32,6 @@ const {
   mpdPortSettingRegExp,
 } = require('../const');
 
-let instance;
-
 const pollMpcProcess = () =>
   timer(0, 500).pipe(
     switchMap(() => from(find('name', 'mpc idleloop'))),
@@ -204,11 +202,12 @@ const MpClient = function () {
         })
       );
 
-    const publishedMpClientEvent$ = resetProcess$.pipe(
-      startWith(null),
-      concatMap(respawnMpc),
-      share()
-    );
+    const publishedMpClientEvent$ =
+      /** @type Observable<MpClientEvent>*/ resetProcess$.pipe(
+        startWith(null),
+        concatMap(respawnMpc),
+        share()
+      );
 
     return {
       sendMpCommand,
@@ -224,6 +223,8 @@ const MpClient = function () {
     };
   })();
 };
+
+let instance;
 
 module.exports = {
   getInstance: () => {

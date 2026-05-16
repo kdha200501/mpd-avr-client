@@ -1,16 +1,15 @@
 const { Subject } = require('rxjs');
-const { getInstance: getCecClient } = require('./clients/cec-client');
-const { getInstance: getMpClient } = require('./clients/mp-client');
 
 const AppTerminator = function () {
-  return (() => {
+  return ((clients) => {
     const destroy$ = new Subject();
 
     const publisher = () => destroy$;
 
     const onExit = (isKillSignal = false) => {
-      getCecClient()?.terminate();
-      getMpClient()?.terminate();
+      for (const client of clients) {
+        client?.terminate();
+      }
 
       destroy$.next(null);
       destroy$.complete();
@@ -23,7 +22,7 @@ const AppTerminator = function () {
     };
 
     return { publisher, onExit };
-  })();
+  })([...arguments]);
 };
 
 module.exports = AppTerminator;

@@ -22,6 +22,7 @@ const {
 
 const { getInstance: getCecClient } = require('../src/clients/cec-client');
 const { getInstance: getMpClient } = require('../src/clients/mp-client');
+const { getInstance: getLircClient } = require('../src/clients/lirc-client');
 const AvrService = require('../src/services/avr-service');
 const AvrPowerStatusReducer = require('../src/reducers/avr-power-status-reducer');
 const AvrWakeUpVolumeStatusReducer = require('../src/reducers/avr-wake-up-volume-status-reducer');
@@ -36,7 +37,7 @@ const AppTerminator = require('../src/app-terminator');
 
 const describe = 'AVR as a MPD client';
 
-/** @type {import('yargs').CommandModule<{}, AppConfig>} */
+/** @type {import('yargs').CommandModule<{}, MainCommandOptions>} */
 module.exports = {
   command: '$0',
   describe,
@@ -73,6 +74,20 @@ module.exports = {
         description:
           'Optionally set the audio volume when the AVR switches audio source to TV',
       })
+      .option('infraredDevice', {
+        alias: 'r',
+        nargs: 1,
+        type: 'string',
+        description:
+          'Optionally provide the path to an infrared receiver device, e.g. `/dev/input/event0`.',
+      })
+      .option('infraredRemoteControlMappingForTv', {
+        alias: 'R',
+        nargs: 1,
+        type: 'string',
+        description:
+          'Optionally provide the path to an infrared remote control kep mapping for the TV. Lirc key press is mapped to IRCC key press when the AVR switches audio source to a TV.',
+      })
       .option('braviaLaunchProfile', {
         alias: 'b',
         nargs: 1,
@@ -88,12 +103,15 @@ module.exports = {
           'Optionally provide the path to a launch profile for Govee LED strip for TV. This powers on LEDs when the AVR switches audio source to a TV.',
       }),
 
+  // TODO: deep rename to commandOptions
   handler: (appConfig) => {
     /**
      * @desc Protocol clients
      */
     const cecClient = getCecClient(); // read-write client
     const mpClient = getMpClient(); // read-write client
+    const lircClient = getLircClient(appConfig); // read-only client
+    const appTerminator = new AppTerminator(cecClient, mpClient, lircClient);
 
     /**
      * @desc Services
@@ -102,13 +120,13 @@ module.exports = {
     const playlistService = new PlaylistService();
     const mpService = new MpService();
     const appStateService = new AppStateService();
-    const appTerminator = new AppTerminator();
 
     /**
      * @desc Scope members
      */
-    const mpClientEvent$ = mpClient.publisher();
     const cecClientEvent$ = cecClient.publisher();
+    const mpClientEvent$ = mpClient.publisher();
+    const lircClientEvent$ = lircClient.publisher();
     const destroy$ = appTerminator.publisher();
 
     const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
@@ -119,11 +137,11 @@ module.exports = {
 
     const playlistsUpdatePromise = playlistService.updatePlaylists();
 
-    const initAppState$ = /** @type {Observable<AppState>} */ forkJoin(
+    const initAppState$ = /** @type {Observable<AppState>} */ forkJoin([
       avrPowerStatus$,
       playlistsUpdatePromise.then(() => mpService.update()),
-      playlistsUpdatePromise
-    ).pipe(
+      playlistsUpdatePromise,
+    ]).pipe(
       map(([avrPowerStatus, mpStatus, playlists]) =>
         appStateService.createAppState(avrPowerStatus, mpStatus, playlists)
       ),
@@ -173,6 +191,13 @@ module.exports = {
         share()
       );
 
+    const postInitialAvrPowerStatusLircClientEvent$ =
+      /** @type Observable<LircClientEvent> */ initAppState$.pipe(
+        switchMap(() => lircClientEvent$),
+        takeUntil(destroy$),
+        share()
+      );
+
     /**
      * @desc OnInit
      */
@@ -206,7 +231,8 @@ module.exports = {
     if (handOverAudioToTvCecCommand) {
       merge(
         postInitialAvrPowerStatusCecClientEvent$,
-        postInitialAvrPowerStatusMpClientEvent$
+        postInitialAvrPowerStatusMpClientEvent$,
+        postInitialAvrPowerStatusLircClientEvent$
       )
         .pipe(
           withLatestFrom(appStateChange$),
@@ -247,6 +273,14 @@ module.exports = {
     /**
      * @desc OnDestroy
      */
-    process.on('SIGINT', () => appTerminator.onExit(true));
+    process.on('SIGINT', () => {
+      appTerminator.onExit(true);
+      process.exit(130);
+    });
+
+    process.on('SIGTERM', () => {
+      appTerminator.onExit(true);
+      process.exit(143);
+    });
   },
 };

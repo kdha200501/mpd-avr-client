@@ -8,6 +8,8 @@ const mpdPortFallback = '6600';
 const getRxRegExp = (hex) =>
   new RegExp(`^TRAFFIC:\\s*\\[\\s*(\\d+)\\s*\\]\\s*>>\\s*${hex}\\s*`, 'im');
 
+const scancodeRegex = /^Event:.* value (.+)$/gm;
+
 const tvLaunchProfileTypeTvTypeMap =
   /** @type {Map<TvLaunchProfileType, TvType>} */ new Map();
 tvLaunchProfileTypeTvTypeMap.set('braviaLaunchProfile', 'BRAVIA');
@@ -48,6 +50,7 @@ module.exports = {
   playRegExp: /play/i,
   pauseRegExp: /pause/i,
   stopRegExp: /stop/i,
+  scancodeRegex,
   tvLaunchProfileTypeTvTypeMap,
   ledLaunchProfileTypeLedTypeMap,
 };

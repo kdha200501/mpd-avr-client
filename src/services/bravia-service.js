@@ -10,23 +10,6 @@ const {
 } = require('rxjs/operators');
 
 const HttpClient = require('../clients/http-client');
-const {
-  arrowUpKeyupRegExp,
-  arrowDownKeyupRegExp,
-  arrowLeftKeyupRegExp,
-  arrowRightKeyupRegExp,
-  enterKeyupRegExp,
-  returnKeyupRegExp,
-  playKeyupRegExp,
-  pauseKeyupRegExp,
-  stopKeyupRegExp,
-  nextKeyupRegExp,
-  previousKeyupRegExp,
-  redFunctionKeyupRegExp,
-  greenFunctionKeyupRegExp,
-  yellowFunctionKeyupRegExp,
-  blueFunctionKeyupRegExp,
-} = require('../const');
 
 const BraviaService = function (_tvLaunchProfilePath) {
   return ((tvLaunchProfilePath) => {
@@ -66,7 +49,7 @@ const BraviaService = function (_tvLaunchProfilePath) {
         take(1)
       );
 
-    const keyCommandMap$ = tvLaunchProfile$.pipe(
+    const buttonIrccCodePairs$ = tvLaunchProfile$.pipe(
       switchMap(({ hostname, preSharedKey }) =>
         httpClient.post(
           hostname,
@@ -80,11 +63,14 @@ const BraviaService = function (_tvLaunchProfilePath) {
       ),
       map((braviaResponse) => {
         const { result } = /** @type BraviaResponse */ braviaResponse;
-        const [_, irccButtons] =
+        const [_, braviaRemoteControllerButton] =
           /** @type {[unknown, BraviaRemoteControllerButton[]]} */ result ?? [];
-        return new Map(irccButtons.map(({ name, value }) => [name, value]));
+        return braviaRemoteControllerButton.map(({ name, value }) => [
+          name,
+          value,
+        ]);
       }),
-      catchError(() => of(new Map())),
+      catchError(() => of([])),
       shareReplay()
     );
 
@@ -168,7 +154,7 @@ const BraviaService = function (_tvLaunchProfilePath) {
       );
 
     const wakeAndLaunchApp = () =>
-      forkJoin(getAppTitle(), braviaAppMap$)
+      forkJoin([getAppTitle(), braviaAppMap$])
         .pipe(
           switchMap(([appTitle, braviaAppMap]) => {
             if (!appTitle) {
@@ -188,104 +174,39 @@ const BraviaService = function (_tvLaunchProfilePath) {
         )
         .subscribe();
 
-    const getIrccButtonName = (cecTransmission) => {
-      if (arrowUpKeyupRegExp.test(cecTransmission)) {
-        return 'Up';
-      }
-      if (arrowDownKeyupRegExp.test(cecTransmission)) {
-        return 'Down';
-      }
-      if (arrowLeftKeyupRegExp.test(cecTransmission)) {
-        return 'Left';
-      }
-      if (arrowRightKeyupRegExp.test(cecTransmission)) {
-        return 'Right';
-      }
-      if (enterKeyupRegExp.test(cecTransmission)) {
-        return 'Confirm';
-      }
-      if (returnKeyupRegExp.test(cecTransmission)) {
-        return 'Return';
-      }
-      if (playKeyupRegExp.test(cecTransmission)) {
-        return 'Play';
-      }
-      if (pauseKeyupRegExp.test(cecTransmission)) {
-        return 'Pause';
-      }
-      if (stopKeyupRegExp.test(cecTransmission)) {
-        return 'Stop';
-      }
-      if (nextKeyupRegExp.test(cecTransmission)) {
-        return 'Next';
-      }
-      if (previousKeyupRegExp.test(cecTransmission)) {
-        return 'Prev';
-      }
-      if (redFunctionKeyupRegExp.test(cecTransmission)) {
-        return 'Red';
-      }
-      if (greenFunctionKeyupRegExp.test(cecTransmission)) {
-        return 'Green';
-      }
-      if (yellowFunctionKeyupRegExp.test(cecTransmission)) {
-        return 'Yellow';
-      }
-      if (blueFunctionKeyupRegExp.test(cecTransmission)) {
-        return 'Blue';
-      }
-    };
-
-    const sendIrcc = (command) =>
-      tvLaunchProfile$.pipe(
-        switchMap(({ hostname, preSharedKey }) =>
-          httpClient.postXml(
-            hostname,
-            '/sony/ircc',
-            `<?xml version="1.0" encoding="utf-8"?>
+    const sendIrccCode = (irccCode) =>
+      tvLaunchProfile$
+        .pipe(
+          switchMap(({ hostname, preSharedKey }) =>
+            httpClient.postXml(
+              hostname,
+              '/sony/ircc',
+              `<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
               <s:Body>
                 <u:X_SendIRCC xmlns:u="urn:schemas-sony-com:service:IRCC:1">
-                  <IRCCCode>${command}</IRCCCode>
+                  <IRCCCode>${irccCode}</IRCCCode>
                 </u:X_SendIRCC>
               </s:Body>
             </s:Envelope>`,
-            {
-              ...(preSharedKey && { 'X-Auth-PSK': preSharedKey }),
-              SOAPACTION: '"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC"',
-            }
-          )
-        ),
-        catchError(() => of(null)),
-        take(1)
-      );
-
-    const relayKeyEvent = (cecTransmission) =>
-      keyCommandMap$
-        .pipe(
-          switchMap((keyCommandMap) => {
-            const irccButtonName = getIrccButtonName(cecTransmission);
-
-            if (!irccButtonName) {
-              return of(null);
-            }
-
-            const command = keyCommandMap.get(irccButtonName);
-
-            if (!command) {
-              return of(null);
-            }
-
-            return sendIrcc(command);
-          }),
+              {
+                ...(preSharedKey && { 'X-Auth-PSK': preSharedKey }),
+                SOAPACTION: '"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC"',
+              }
+            )
+          ),
+          catchError(() => of(null)),
           take(1)
         )
         .subscribe();
 
+    const getButtonIrccCodePairs = () => buttonIrccCodePairs$;
+
     return {
       standBy,
       wakeAndLaunchApp,
-      relayKeyEvent,
+      sendIrccCode,
+      getButtonIrccCodePairs,
     };
   })(_tvLaunchProfilePath);
 };

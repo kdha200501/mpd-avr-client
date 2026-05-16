@@ -58,6 +58,73 @@ $ sudo systemctl enable bluetooth
 
 
 
+# VMA317 IR Receiver
+
+## Pinout
+
+| **VMA317 Pin**  | **Connection Type** | **Raspberry Pi Zero Pin Number** | **GPIO Label** |
+| --------------- | ------------------- | -------------------------------- | -------------- |
+| **GND** / **-** | Ground              | **Pin 14**                       | Ground         |
+| **VCC** / **+** | Power (3.3V)        | **Pin 17**                       | 3.3V Power     |
+| **S** / **OUT** | Data Signal         | **Pin 12**                       | **GPIO 18**    |
+
+
+
+## Enable kernel overlay
+
+```shell
+$ sudo vim /boot/firmware/config.txt
+````
+
+Add
+
+```shell
+dtoverlay=gpio-ir,gpio_pin=18
+```
+
+
+
+Verify
+
+```shell
+$ sudo reboot
+$ lsmod | grep gpio_ir
+```
+
+
+
+Identify device
+
+```shell
+$ sudo apt update
+$ sudo apt install evtest
+
+$ evtest
+```
+
+
+
+Test
+
+```shell
+$ sudo evtest --grab <device>
+```
+
+
+> [!TIP]
+>
+> If `evtest` does not register events, then try enabling all protocols
+>
+> ```shell
+> $ sudo apt install ir-keytable
+> $ sudo ir-keytable -p all
+> ```
+
+
+
+
+
+
 # Install `mpd`
 
 ```shell

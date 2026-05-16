@@ -229,7 +229,7 @@
     "prefer-promise-reject-errors": "error",
     "prefer-reflect": "off",
     "prefer-regex-literals": "error",
-    "prefer-rest-params": "error",
+    "prefer-rest-params": "off",
     "prefer-spread": "error",
     "prefer-template": "error",
     "prettier/prettier": "error",

@@ -8,6 +8,7 @@ const {
   avrIsOnRegExp,
   avrIsStandByRegExp,
   volumeStatusRegExp,
+  blueFunctionKeyupRegExp,
 } = require('../const');
 const { getInstance: getCecClient } = require('../clients/cec-client');
 
@@ -15,7 +16,7 @@ const AvrService = function (_appConfig) {
   return ((appConfig) => {
     const cecClient = getCecClient();
     const { osdMaxLength, audioVolumePreset } =
-      /** @type AppConfig */ appConfig;
+      /** @type MainCommandOptions */ appConfig;
 
     const convertOsdToHex = (message) =>
       [...message.padEnd(osdMaxLength, ' ')]
@@ -115,6 +116,16 @@ const AvrService = function (_appConfig) {
       return avrRequestDisplayNameRegExp.test(cecTransmission);
     };
 
+    // TODO: JSDOC
+    const isAvrRequestSwitchAudioSource = (cecClientEvent) => {
+      if (!cecClientEvent) {
+        return false;
+      }
+
+      const { data: cecTransmission } = cecClientEvent;
+      return blueFunctionKeyupRegExp.test(cecTransmission);
+    };
+
     /**
      * Adjust the AVR audio volume
      * @param {AvrVolumeStatus} avrVolumeStatus The current AVR volume status
@@ -176,6 +187,7 @@ const AvrService = function (_appConfig) {
       decodeAvrVolumeStatus,
       isAvrVolumeStatsValid,
       isAvrRequestDisplayName,
+      isAvrRequestSwitchAudioSource,
       adjustAudioVolume,
     };
   })(_appConfig);

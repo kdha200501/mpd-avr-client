@@ -133,11 +133,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
+
+# Enable all IR protocols
+ExecStartPre=/usr/bin/ir-keytable -p all
 
 # We source nvm.sh to ensure the environment is ready, then launch the app with its flags
-ExecStart=/bin/bash -c '. /home/pi/.nvm/nvm.sh && mpd-avr-client -v 38 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
+ExecStart=/bin/bash -c 'export NVM_DIR="/home/pi/.nvm" && . $NVM_DIR/nvm.sh && mpd-avr-client -v 38 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
 
 Restart=always
 RestartSec=5
@@ -198,7 +199,7 @@ copy + paste:
 
 > [!TIP]
 >
-> `-t` option is required, and optionally use a *Flirc* to control *TV* with the *AVR* remote-control
+> `-t` option is required, and optionally pass in the remote control button mapping (through `-R`) to control *TV* with the *AVR* remote-control when switched to the TV
 
 
 

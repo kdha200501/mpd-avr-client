@@ -1,3 +1,5 @@
+const { of } = require('rxjs');
+
 const { tvLaunchProfileTypeTvTypeMap } = require('../const');
 const { getInstance: getBraviaService } = require('./bravia-service');
 
@@ -24,8 +26,8 @@ const tvServiceFactory = function (appConfig) {
         isEnabled,
         standBy: () => braviaService.standBy(),
         wakeAndLaunchApp: () => braviaService.wakeAndLaunchApp(),
-        relayKeyEvent: (cecTransmission) =>
-          braviaService.relayKeyEvent(cecTransmission),
+        sendIrccCode: (irccCode) => braviaService.sendIrccCode(irccCode),
+        getButtonIrccCodePairs: () => braviaService.getButtonIrccCodePairs(),
       };
     }
 
@@ -35,7 +37,8 @@ const tvServiceFactory = function (appConfig) {
         isEnabled,
         standBy: noop,
         wakeAndLaunchApp: noop,
-        relayKeyEvent: noop,
+        sendIrccCode: noop,
+        getButtonIrccCodePairs: () => of([]),
       };
   }
 };

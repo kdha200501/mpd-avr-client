@@ -1,11 +1,31 @@
 /** @typedef {import('rxjs').Observable} Observable */
 
 /**
+ * @typedef {Object} MainCommandOptions
+ * @property {number} [osdMaxLength] - Maximum number of characters for OSD display (default: 14)
+ * @property {number} [audioVolumePreset] - Audio volume (0-100) target when AVR wakes up
+ * @property {string} [handOverAudioToTvCecCommand] - CEC command for AVR to switch audio source to TV via non-HDMI input
+ * @property {string} [infraredDevice] - Path to infrared device
+ * @property {number} [audioVolumePresetForTv] - Audio volume target when AVR switches audio source to TV
+ * @property {string} [infraredRemoteControlMappingForTv] - Path to infrared remote control key mapping for TV
+ * @property {string} [braviaLaunchProfile] - Path to launch profile for Sony Bravia TV
+ * @property {string} [goveeLaunchProfile] - Path to launch profile for Govee LED strip
+ */
+
+/**
+ * @typedef {Object} MapKeysCommandOptions
+ * @property {string} infraredDevice - Path to infrared device
+ * @property {string} [directory] - Working directory for the command (default: current directory)
+ * @property {string} [braviaLaunchProfile] - Path to launch profile for Sony Bravia TV when mapping remote control buttons
+ */
+
+/**
  * @typedef {Object} AppConfig
  * @property {number} osdMaxLength
  * @property {number} audioVolumePreset
  * @property {string} handOverAudioToTvCecCommand
  * @property {number} audioVolumePresetForTv
+ * @property {string} infraredRemoteControlMappingForTv
  * @property {TvLaunchProfileType} braviaLaunchProfile
  * @property {LedLaunchProfileType} goveeLaunchProfile
  */
@@ -15,7 +35,8 @@
  * @property {function(): boolean} isEnabled
  * @property {function(): void} wakeAndLaunchApp
  * @property {function(): void} standBy
- * @property {function(CecTransmission): void} relayKeyEvent
+ * @property {function(string): void} sendIrccCode
+ * @property {function(): import('rxjs').Observable<[string, string][]>} getButtonIrccCodePairs
  */
 
 /**
@@ -72,6 +93,12 @@
  * @typedef {Object} CecClientEvent
  * @property {'cecClient'} source
  * @property {CecTransmission} data
+ */
+
+/**
+ * @typedef {Object} LircClientEvent
+ * @property {'lircClient'} source
+ * @property {string} data
  */
 
 /**
