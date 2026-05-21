@@ -11,7 +11,7 @@ $ mpd-avr-client -h
   --osdMaxLength, -o                       Specify the maximum number of characters that can be put
                                            on the OSD                         [number] [default: 14]
   --audioVolumePreset, -v                  Optionally set the audio volume (0-100) when the AVR
-                                           wakes up. For Yamaha RX-V385, -43dB corresponds to 38.
+                                           wakes up. For Yamaha RX-V385, -42dB corresponds to 35.
                                                                                             [number]
   --handOverAudioToTvCecCommand, -t        Optionally provide the CEC command for the AVR to switch
                                            audio source to a TV that is connected via a non-HDMI

@@ -33,15 +33,15 @@ The objectives of the project are to use
 
 `cec-client` - a *TTY* application used for subscribing to *CEC* events and sending commands to the *AVR*
 
-`gatttool` - an application used for Bluetooth communication with smart LED strips
+`gatttool` - an application used for Bluetooth communication with smart *LED* strips
 
-`ir-keytable` - an application used for configuring IR protocol support
+`ir-keytable` - an application used for configuring *IR* protocol support
 
-`evtest` - a *TTY* application used for infrared input event testing
+`evtest` - a *TTY* application used for grabbing input events
 
 
 
-Follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/trixie.md) to see a setup guide on Trixie
+Follow this [link](https://github.com/kdha200501/mpd-avr-client/blob/master/trixie.md) to see a setup guide on *Trixie*
 
 
 
@@ -84,7 +84,7 @@ $ sudo ln -s "/path/to/song/file" ./
 ##### Launch
 
 ```shell
-$ sudo mpd-avr-client
+$ mpd-avr-client
 ```
 
 > [!WARNING]
@@ -117,7 +117,7 @@ Type=simple
 ExecStartPre=/usr/bin/ir-keytable -p all
 
 # We source nvm.sh to ensure the environment is ready, then launch the app with its flags
-ExecStart=/bin/bash -c 'export NVM_DIR="/home/pi/.nvm" && . $NVM_DIR/nvm.sh && mpd-avr-client -v 38 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -r /dev/input/event0 -R /home/pi/.mpd-avr-client/yamaha-bravia-mapping.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
+ExecStart=/bin/bash -c 'export NVM_DIR="/home/pi/.nvm" && . $NVM_DIR/nvm.sh && mpd-avr-client -v 35 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -r /dev/input/event0 -R /home/pi/.mpd-avr-client/yamaha-bravia-mapping.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
 
 Restart=always
 RestartSec=5
@@ -129,6 +129,12 @@ StandardError=inherit
 [Install]
 WantedBy=multi-user.target
 ```
+
+> [!NOTE]
+>
+> See [`commands/main.md`](https://github.com/kdha200501/mpd-avr-client/blob/master/commands/main.md) for option detail
+
+
 
 install service
 
@@ -148,7 +154,7 @@ $ sudo systemctl status mpd-avr-client
 
 # Smart TV integration
 
-The `mpd-avr-client` project is setup to avoid having *TV*(s) connected to *HDMI* ports of the *AVR*. This setup cuts off communication between the *AVR* and the *TV* to avoid unwanted propitiatory behaviours that are baked into these devices and give rise to unpleasant surprises at runtime. However, some traits bring convenience and those shall be re-implemented.
+The `mpd-avr-client` project is setup to avoid connecting *TV* to the *AVR* via its *HDMI* ports *i.e.* use optical or *RCA* for *TV* audio. This setup cuts off *CEC* communication between the *AVR* and the *TV* to avoid unwanted propitiatory behaviours that are baked into these devices and give rise to unpleasant surprises at runtime. However, some traits bring convenience and those shall be re-implemented.
 
 
 
@@ -156,6 +162,7 @@ As an experiment, the `mpd-avr-client` project integrates with the *Bravia* *API
 
 - bring back the automation of powering on *TV*  (and putting *TV* in standby), and
 - provide the convenience of launching an Application on the TV (as an option)
+- relay remote control keypress events to the *TV*
 
 
 
@@ -178,11 +185,7 @@ copy + paste:
 
 
 
-Since this setup cuts off communication between the *AVR* and the *TV*, `mpd-avr-client` provides a solution to relay *AVR* remove control key press to the *TV*. The solution converts the `lirc` values captured by the infrared receiver breakout board into `ircc` code and send the code to the *TV*.
-
-
-
-To create a remote control mapping
+Infrared signal is captured by the infrared receiver breakout board and decoded by the Linux kernel (`lirc`). The `mpd-avr-client` project provides a solution to relay *AVR* remove control keypress to the *TV* by mapping the decoded infrared signal to `ircc` code and send the code to the *TV*. This mapping is created using the `map-keys` sub command:
 
 ```shell
 $ mpd-avr-client map-keys -r <ir-receiver-path> -b <bravia-launch-profile.json> -C <output-file-directory>
@@ -210,7 +213,7 @@ The *Bravia* *TV* launch profile is supplied under the `-b` option and the remot
 
 # Smart LED strip for TV integration
 
-As an experiment, the `mpd-avr-client` project integrates with *Govee* through *Bluetooth* to automate the power cycle of LED light strip
+As an experiment, the `mpd-avr-client` project integrates with *Govee* through *Bluetooth* to automate the power cycle of *LED* light strip
 
 
 
@@ -232,7 +235,7 @@ copy + paste:
 
 > [!NOTE]
 >
-> The *Bluetooth* MAC address can be found by listing *Bluetooth* devices with this command:
+> The *Bluetooth* *MAC* address can be found by listing *Bluetooth* devices with this command:
 > ```shell
 > $ sudo hcitool lescan
 > ```

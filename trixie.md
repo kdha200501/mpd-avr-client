@@ -7,6 +7,8 @@ $ sudo apt install cec-utils
 $ echo scan | cec-client -s -d 1
 ```
 
+
+
 ##### Fix user group
 
 ```shell
@@ -34,6 +36,8 @@ $ rfkill list
 > $ sudo rfkill unblock bluetooth
 > ```
 
+
+
 ##### Turn on Bluetooth
 
 ```shell
@@ -47,6 +51,8 @@ power on
 scan on
 exit
 ```
+
+
 ##### Launch Bluetooth service at startup
 
 ```shell
@@ -58,19 +64,19 @@ $ sudo systemctl enable bluetooth
 
 
 
-# VMA317 IR Receiver
+# Enable Infrared Receiver
 
-## Pinout
+##### Pinout
 
 | **VMA317 Pin**  | **Connection Type** | **Raspberry Pi Zero Pin Number** | **GPIO Label** |
 | --------------- | ------------------- | -------------------------------- | -------------- |
-| **GND** / **-** | Ground              | **Pin 14**                       | Ground         |
-| **VCC** / **+** | Power (3.3V)        | **Pin 17**                       | 3.3V Power     |
-| **S** / **OUT** | Data Signal         | **Pin 12**                       | **GPIO 18**    |
+| **GND** / **-** | Ground              | **Pin 14**                       | GND            |
+| **VCC** / **+** | Power (3.3V)        | **Pin 17**                       | 3V3            |
+| **S** / **OUT** | Data Signal         | **Pin 12**                       | GPIO 18        |
 
 
 
-## Enable kernel overlay
+##### Enable kernel overlay
 
 ```shell
 $ sudo vim /boot/firmware/config.txt
@@ -98,6 +104,7 @@ Identify device
 ```shell
 $ sudo apt update
 $ sudo apt install evtest
+$ sudo apt install ir-keytable
 
 $ evtest
 ```
@@ -107,7 +114,7 @@ $ evtest
 Test
 
 ```shell
-$ sudo evtest --grab <device>
+$ evtest --grab <device>
 ```
 
 
@@ -116,7 +123,6 @@ $ sudo evtest --grab <device>
 > If `evtest` does not register events, then try enabling all protocols
 >
 > ```shell
-> $ sudo apt install ir-keytable
 > $ sudo ir-keytable -p all
 > ```
 
@@ -130,6 +136,8 @@ $ sudo evtest --grab <device>
 ```shell
 $ sudo apt install mpd mpc
 ```
+
+
 
 ##### Configure sound output
 
@@ -145,9 +153,11 @@ Copy and paste
 ```shell
 audio_output {
 	type		"alsa"
-	name		"My ALSA Device"
+	name		"HDMI Output"
 }
 ```
+
+
 
 ##### Launch media player service at startup
 
@@ -155,6 +165,8 @@ audio_output {
 $ sudo systemctl enable mpd
 $ sudo systemctl start mpd
 ```
+
+
 
 ##### Fix permission
 
@@ -203,6 +215,8 @@ $ command -v nvm
 > ```shell
 > $ source ~/.bashrc
 > ```
+
+
 
 ##### Install node
 
