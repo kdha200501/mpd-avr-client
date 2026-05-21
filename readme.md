@@ -8,7 +8,9 @@ The aim of the `mpd-avr-client` project is to explore the practicality of using 
 
 - a *Raspberry Pi 3* for development
 - a *Yamaha RX-V385* for testing
+  - a *Raspberry Pi Zero* is used for testing
   - the *Raspberry Pi* is the only device connected to the *AVR* via *HDMI*
+- a *VMA317* Infrared Receiver breakout board
 
 
 
@@ -29,9 +31,13 @@ The objectives of the project are to use
 
 `mpc` - a terminal client for `mpd`, it is used for subscribing to `mpd` events
 
-`nc` - *Netcat*, a *TTY* application used for sending commands to `mpd`
-
 `cec-client` - a *TTY* application used for subscribing to *CEC* events and sending commands to the *AVR*
+
+`gatttool` - an application used for Bluetooth communication with smart LED strips
+
+`ir-keytable` - an application used for configuring IR protocol support
+
+`evtest` - a *TTY* application used for infrared input event testing
 
 
 
@@ -87,33 +93,6 @@ $ sudo mpd-avr-client
 
 
 
-##### Options
-
-```
-  --version                          Show version number               [boolean]
-  -o, --osdMaxLength                 Specify the maximum number of characters
-                                     that can be put on the OSD
-                                                          [number] [default: 14]
-  -v, --audioVolumePreset            Optionally set the audio volume (0-100)
-                                     when the AVR wakes up. For Yamaha RX-V385,
-                                     -43dB corresponds to 38.           [number]
-  -t, --handOverAudioToTvCecCommand  Optionally provide the CEC command for the
-                                     AVR to switch audio source to a TV that is
-                                     connected via a non-HDMI input, e.g. `tx
-                                     15:44:69:09`. Use the blue button to switch
-                                     audio source.                      [string]
-  -T, --audioVolumePresetForTv       Optionally set the audio volume when the
-                                     AVR switches audio source to TV    [number]
-  -b, --braviaLaunchProfile          Optionally provide the path to a launch
-                                     profile for Sony Bravia TV. This powers on
-                                     TV when the AVR switches audio source to a
-                                     TV.                                [string]
-  -g, --goveeLaunchProfile           Optionally provide the path to a launch
-                                     profile for Govee LED strip for TV. This
-                                     powers on LEDs when the AVR switches audio
-                                     source to a TV.                    [string]
-  -h, --help                         Show help                         [boolean]
-```
 
 
 
@@ -197,15 +176,40 @@ copy + paste:
 }
 ```
 
+
+
+Since this setup cuts off communication between the *AVR* and the *TV*, `mpd-avr-client` provides a solution to relay *AVR* remove control key press to the *TV*. The solution converts the `lirc` values captured by the infrared receiver breakout board into `ircc` code and send the code to the *TV*.
+
+
+
+To create a remote control mapping
+
+```shell
+$ mpd-avr-client map-keys -r <ir-receiver-path> -b <bravia-launch-profile.json> -C <output-file-directory>
+```
+
 > [!TIP]
 >
-> `-t` option is required, and optionally pass in the remote control button mapping (through `-R`) to control *TV* with the *AVR* remote-control when switched to the TV
+> run `evtest` to figure out the path to the infrared receiver
+>
+> see [`commands/map-keys.md`](https://github.com/kdha200501/mpd-avr-client/blob/master/commands/map-keys.md) for details
+
+
+
+The *Bravia* *TV* launch profile is supplied under the `-b` option and the remote control mapping is supplied under the `-R` option. See [`commands/main.md`](https://github.com/kdha200501/mpd-avr-client/blob/master/commands/main.md) for examples.
+
+> [!TIP]
+>
+> the `-t` option is required when using the `-b`  option and the `-R` option
+
+
 
 
 
 
 
 # Smart LED strip for TV integration
+
 As an experiment, the `mpd-avr-client` project integrates with *Govee* through *Bluetooth* to automate the power cycle of LED light strip
 
 
@@ -241,7 +245,10 @@ copy + paste:
 >
 > 
 
+
+
+The *Govee* *LED* launch profile is supplied under the `-g` option. See [`commands/main.md`](https://github.com/kdha200501/mpd-avr-client/blob/master/commands/main.md) for examples.
+
 > [!TIP]
 >
-> `-t` option is required
-
+> the `-t` option is required when using the `-g`  option
