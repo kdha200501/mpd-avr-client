@@ -1,8 +1,8 @@
 const AvrService = require('../services/avr-service');
 
-const AvrPowerStatusReducer = function (_appConfig) {
-  return ((appConfig) => {
-    const avrService = new AvrService(appConfig);
+const AvrPowerStatusReducer = function (_commandOptions) {
+  return ((commandOptions) => {
+    const avrService = new AvrService(commandOptions);
 
     /**
      * Get the initial state
@@ -46,7 +46,7 @@ const AvrPowerStatusReducer = function (_appConfig) {
       },
       getInitState(),
     ];
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = AvrPowerStatusReducer;

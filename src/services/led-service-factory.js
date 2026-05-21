@@ -1,11 +1,11 @@
 const { ledLaunchProfileTypeLedTypeMap } = require('../const');
 const { getInstance: getGoveeService } = require('./govee-service');
 
-const ledServiceFactory = function (appConfig) {
+const ledServiceFactory = function (commandOptions) {
   const [ledLaunchProfilePath, ledType] = [
     ...ledLaunchProfileTypeLedTypeMap,
   ].reduce((acc, [_ledLaunchProfileType, _ledType]) => {
-    const _ledLaunchProfilePath = appConfig[_ledLaunchProfileType];
+    const _ledLaunchProfilePath = commandOptions[_ledLaunchProfileType];
 
     if (!_ledLaunchProfilePath) {
       return acc;

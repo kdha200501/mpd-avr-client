@@ -6,39 +6,40 @@ const CecClient = function () {
   return (() => {
     let cecClientProcess;
 
-    const cecClientEvent$ = /** @type Observable<CecClientEvent>*/ defer(() => {
-      cecClientProcess = spawn('cec-client', ['-o', 'Loading...']);
+    const publishedCecClientEvent$ =
+      /** @type Observable<CecClientEvent>*/ defer(() => {
+        cecClientProcess = spawn('cec-client', ['-o', 'Loading...']);
 
-      return new Observable((subscriber) => {
-        const source = 'cecClient';
-        const onData = (data) =>
-          subscriber.next({
-            source,
-            data,
-          });
-        const onClose = (exitCode) => {
-          console.log(`cec-client exited with code ${exitCode}\n`);
+        return new Observable((subscriber) => {
+          const source = 'cecClient';
+          const onData = (data) =>
+            subscriber.next({
+              source,
+              data,
+            });
+          const onClose = (exitCode) => {
+            console.log(`cec-client exited with code ${exitCode}\n`);
 
-          if (exitCode === 0) {
-            return subscriber.complete();
-          }
+            if (exitCode === 0) {
+              return subscriber.complete();
+            }
 
-          subscriber.error(exitCode);
-        };
-        const onUnsubscribe = () => {};
+            subscriber.error(exitCode);
+          };
+          const onUnsubscribe = () => {};
 
-        // emit next event
-        cecClientProcess.stdout.on('data', onData);
-        cecClientProcess.stderr.on('data', onData);
+          // emit next event
+          cecClientProcess.stdout.on('data', onData);
+          cecClientProcess.stderr.on('data', onData);
 
-        // emit complete and error event
-        cecClientProcess.on('close', onClose);
+          // emit complete and error event
+          cecClientProcess.on('close', onClose);
 
-        return onUnsubscribe;
-      });
-    }).pipe(share());
+          return onUnsubscribe;
+        });
+      }).pipe(share());
 
-    const publisher = () => cecClientEvent$;
+    const publisher = () => publishedCecClientEvent$;
 
     const terminate = () => {
       if (cecClientProcess) {
@@ -58,7 +59,6 @@ const CecClient = function () {
 
 let instance;
 
-// Export a factory function instead of the class or a raw instance
 module.exports = {
   getInstance: () => {
     if (!instance) {

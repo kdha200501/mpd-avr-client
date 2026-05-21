@@ -138,7 +138,7 @@ Type=simple
 ExecStartPre=/usr/bin/ir-keytable -p all
 
 # We source nvm.sh to ensure the environment is ready, then launch the app with its flags
-ExecStart=/bin/bash -c 'export NVM_DIR="/home/pi/.nvm" && . $NVM_DIR/nvm.sh && mpd-avr-client -v 38 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
+ExecStart=/bin/bash -c 'export NVM_DIR="/home/pi/.nvm" && . $NVM_DIR/nvm.sh && mpd-avr-client -v 38 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -r /dev/input/event0 -R /home/pi/.mpd-avr-client/yamaha-bravia-mapping.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
 
 Restart=always
 RestartSec=5

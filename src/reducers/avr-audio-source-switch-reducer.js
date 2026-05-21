@@ -8,16 +8,16 @@ const TvRemoteService = require('../services/tv-remote-service');
 const tvServiceFactory = require('../services/tv-service-factory');
 const ledServiceFactory = require('../services/led-service-factory');
 
-const AvrAudioSourceSwitchReducer = function (_appConfig) {
-  return ((appConfig) => {
+const AvrAudioSourceSwitchReducer = function (_commandOptions) {
+  return ((commandOptions) => {
     const { handOverAudioToTvCecCommand, audioVolumePresetForTv } =
-      /** @type AppConfig */ appConfig;
+      /** @type {MainCommandOptions} */ commandOptions;
 
-    const avrService = new AvrService(appConfig);
+    const avrService = new AvrService(commandOptions);
     const mpService = new MpService();
-    const tvRemoteService = new TvRemoteService(appConfig);
-    const tvService = tvServiceFactory(appConfig);
-    const ledService = ledServiceFactory(appConfig);
+    const tvRemoteService = new TvRemoteService(commandOptions);
+    const tvService = tvServiceFactory(commandOptions);
+    const ledService = ledServiceFactory(commandOptions);
 
     /**
      * Get the initial state
@@ -25,16 +25,23 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
      */
     const getInitState = () => [[], [undefined, undefined]];
 
-    // TODO: JSDOC
+    /**
+     * Request the AVR audio volume
+     * @returns {[AvrVolumeStatus, MpStatusStateTransition]} The AVR volume request state
+     */
     const onRequestAudioVolume = () => {
       avrService.requestAudioVolume();
       return [[undefined], [undefined, undefined]];
     };
 
-    // TODO: JSDOC
+    /**
+     * Handle the pause action
+     * @param {AppState} appState The current MPD playback state
+     * @param {AvrVolumeStatus} avrVolumeStatus The current AVR audio volume status
+     * @returns {[AvrVolumeStatus, MpStatusStateTransition]} Returns a tuple with the AVR volume status and the MP status states
+     */
     const onPause = ({ state }, avrVolumeStatus) => {
       if (playRegExp.test(state)) {
-        // then ask MP to pause
         avrService.updateOsd('pause');
         /**
          * @desc Unfortunately, there is a mysterious incompatibility issue between cec-client and netcat that prevents sending commands to them in proximity, some magic number is used here
@@ -217,7 +224,7 @@ const AvrAudioSourceSwitchReducer = function (_appConfig) {
       },
       getInitState(),
     ];
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = AvrAudioSourceSwitchReducer;

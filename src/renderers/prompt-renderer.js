@@ -8,9 +8,9 @@ const {
 } = require('../const');
 const AvrService = require('../services/avr-service');
 
-const PromptRenderer = function (_appConfig) {
-  return ((appConfig) => {
-    const avrService = new AvrService(appConfig);
+const PromptRenderer = function (_commandOptions) {
+  return ((commandOptions) => {
+    const avrService = new AvrService(commandOptions);
 
     return ([cecClientEvent, appState]) => {
       const { data: cecTransmission } =
@@ -50,7 +50,7 @@ const PromptRenderer = function (_appConfig) {
         return avrService.updateOsd(message);
       }
     };
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = PromptRenderer;

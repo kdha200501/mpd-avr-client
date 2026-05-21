@@ -12,11 +12,11 @@ const {
 } = require('../const');
 const { getInstance: getCecClient } = require('../clients/cec-client');
 
-const AvrService = function (_appConfig) {
-  return ((appConfig) => {
+const AvrService = function (_commandOptions) {
+  return ((commandOptions) => {
     const cecClient = getCecClient();
     const { osdMaxLength, audioVolumePreset } =
-      /** @type MainCommandOptions */ appConfig;
+      /** @type {MainCommandOptions} */ commandOptions;
 
     const convertOsdToHex = (message) =>
       [...message.padEnd(osdMaxLength, ' ')]
@@ -116,7 +116,11 @@ const AvrService = function (_appConfig) {
       return avrRequestDisplayNameRegExp.test(cecTransmission);
     };
 
-    // TODO: JSDOC
+    /**
+     * Determine whether a cec-client event is caused by the AVR requesting audio source switching
+     * @param {CecClientEvent} cecClientEvent A cec-client event
+     * @returns {boolean} whether a cec-client event is caused by the AVR requesting audio source switching
+     */
     const isAvrRequestSwitchAudioSource = (cecClientEvent) => {
       if (!cecClientEvent) {
         return false;
@@ -190,7 +194,7 @@ const AvrService = function (_appConfig) {
       isAvrRequestSwitchAudioSource,
       adjustAudioVolume,
     };
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = AvrService;

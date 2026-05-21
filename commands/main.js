@@ -45,6 +45,10 @@ module.exports = {
   builder: (yargs) =>
     yargs
       .usage('Usage: $0 [options]')
+      .example('$0 -v 38')
+      .example(
+        '$0 -t "tx 15:44:69:09" -T 48 -b /home/pi/.mpd-avr-client/bravia-launch-profile.json -r /dev/input/event0 -R /home/pi/.mpd-avr-client/yamaha-bravia-mapping.json -g /home/pi/.mpd-avr-client/govee-launch-profile.json'
+      )
       .option('osdMaxLength', {
         alias: 'o',
         nargs: 1,
@@ -103,20 +107,20 @@ module.exports = {
           'Optionally provide the path to a launch profile for Govee LED strip for TV. This powers on LEDs when the AVR switches audio source to a TV.',
       }),
 
-  // TODO: deep rename to commandOptions
-  handler: (appConfig) => {
+  handler: (commandOptions) => {
     /**
      * @desc Protocol clients
      */
     const cecClient = getCecClient(); // read-write client
     const mpClient = getMpClient(); // read-write client
-    const lircClient = getLircClient(appConfig); // read-only client
+    const lircClient = getLircClient(commandOptions); // read-only client
+
     const appTerminator = new AppTerminator(cecClient, mpClient, lircClient);
 
     /**
      * @desc Services
      */
-    const avrService = new AvrService(appConfig);
+    const avrService = new AvrService(commandOptions);
     const playlistService = new PlaylistService();
     const mpService = new MpService();
     const appStateService = new AppStateService();
@@ -130,7 +134,7 @@ module.exports = {
     const destroy$ = appTerminator.publisher();
 
     const avrPowerStatus$ = /** @type AvrPowerStatus */ cecClientEvent$.pipe(
-      scan(...new AvrPowerStatusReducer(appConfig)),
+      scan(...new AvrPowerStatusReducer(commandOptions)),
       filter(avrService.isAvrPowerStatusValid),
       take(1)
     );
@@ -157,7 +161,7 @@ module.exports = {
        */
       merge(cecClientEvent$, mpClientEvent$)
     ).pipe(
-      scan(...new AppStateReducer(appConfig)),
+      scan(...new AppStateReducer(commandOptions)),
       distinctUntilChanged(appStateService.isAppStateChanged),
       share()
     );
@@ -206,19 +210,19 @@ module.exports = {
         map(([appState]) => appState),
         takeUntil(destroy$)
       )
-      .subscribe(new AppStateRenderer(appConfig)); // update OSD according to application state change
+      .subscribe(new AppStateRenderer(commandOptions)); // update OSD according to application state change
 
     postInitialAvrPowerStatusCecClientEvent$
       .pipe(withLatestFrom(appStateChange$), takeUntil(destroy$))
-      .subscribe(new PromptRenderer(appConfig)); // update OSD according to prompt
+      .subscribe(new PromptRenderer(commandOptions)); // update OSD according to prompt
 
     const { audioVolumePreset, handOverAudioToTvCecCommand } =
-      /** @type AppConfig */ appConfig;
+      /** @type MainCommandOptions */ commandOptions;
 
     if (audioVolumePreset !== undefined) {
       postInitialAvrPowerStatusCecClientEvent$
         .pipe(
-          scan(...new AvrWakeUpVolumeStatusReducer(appConfig)),
+          scan(...new AvrWakeUpVolumeStatusReducer(commandOptions)),
           filter(avrService.isAvrVolumeStatsValid),
           switchMap((avrVolumeStatus) =>
             avrService.adjustAudioVolume(avrVolumeStatus)
@@ -236,7 +240,7 @@ module.exports = {
       )
         .pipe(
           withLatestFrom(appStateChange$),
-          scan(...new AvrAudioSourceSwitchReducer(appConfig)),
+          scan(...new AvrAudioSourceSwitchReducer(commandOptions)),
           takeUntil(destroy$)
         )
         .subscribe(); // switch audio source

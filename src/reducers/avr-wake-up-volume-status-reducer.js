@@ -1,8 +1,8 @@
 const AvrService = require('../services/avr-service');
 
-const AvrWakeUpVolumeStatusReducer = function (_appConfig) {
-  return ((appConfig) => {
-    const avrService = new AvrService(appConfig);
+const AvrWakeUpVolumeStatusReducer = function (_commandOptions) {
+  return ((commandOptions) => {
+    const avrService = new AvrService(commandOptions);
 
     /**
      * Get the initial state
@@ -69,7 +69,7 @@ const AvrWakeUpVolumeStatusReducer = function (_appConfig) {
       },
       getInitState(),
     ];
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = AvrWakeUpVolumeStatusReducer;

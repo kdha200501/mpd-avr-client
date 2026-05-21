@@ -50,7 +50,7 @@ module.exports = {
       .usage(describe)
       .usage('Usage: $0 map-keys [options]')
       .example(
-        '$0 map-keys -b ~/.mpd-avr-client/bravia-launch-profile.json -C ~/.mpd-avr-client'
+        '$0 map-keys -r /dev/input/event0 -b ~/.mpd-avr-client/bravia-launch-profile.json -C ~/.mpd-avr-client'
       )
       .option('C', {
         alias: 'directory',
@@ -77,11 +77,21 @@ module.exports = {
   handler: (commandOptions) => {
     const cwd = commandOptions.directory;
 
+    /**
+     * @desc Protocol clients
+     */
     const lircClient = getLircClient(commandOptions); // read-only client
+
     const appTerminator = new AppTerminator(lircClient);
 
+    /**
+     * @desc Services
+     */
     const tvService = tvServiceFactory(commandOptions);
 
+    /**
+     * @desc Scope members
+     */
     const lircCode$ = lircClient.publisher().pipe(map(({ data }) => data));
     const destroy$ = appTerminator.publisher();
 

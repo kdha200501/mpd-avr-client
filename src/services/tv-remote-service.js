@@ -2,10 +2,10 @@ const { readFile } = require('fs');
 const { Observable } = require('rxjs');
 const { shareReplay } = require('rxjs/operators');
 
-const TvRemoteService = function (_appConfig) {
-  return ((appConfig) => {
+const TvRemoteService = function (_commandOptions) {
+  return ((commandOptions) => {
     const { infraredRemoteControlMappingForTv } =
-      /** @type {MainCommandOptions} */ appConfig;
+      /** @type {MainCommandOptions} */ commandOptions;
 
     const lircCodeIrccCodeMap$ = new Observable((subscriber) => {
       readFile(infraredRemoteControlMappingForTv, (err, data) => {
@@ -34,7 +34,7 @@ const TvRemoteService = function (_appConfig) {
     return {
       getLircCodeIrccCodeMap,
     };
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = TvRemoteService;

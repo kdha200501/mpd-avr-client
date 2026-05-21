@@ -20,17 +20,6 @@
  */
 
 /**
- * @typedef {Object} AppConfig
- * @property {number} osdMaxLength
- * @property {number} audioVolumePreset
- * @property {string} handOverAudioToTvCecCommand
- * @property {number} audioVolumePresetForTv
- * @property {string} infraredRemoteControlMappingForTv
- * @property {TvLaunchProfileType} braviaLaunchProfile
- * @property {LedLaunchProfileType} goveeLaunchProfile
- */
-
-/**
  * @typedef {Object} TVService
  * @property {function(): boolean} isEnabled
  * @property {function(): void} wakeAndLaunchApp

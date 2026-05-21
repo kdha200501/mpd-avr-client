@@ -23,9 +23,9 @@ const MpService = require('../services/mp-service');
  *       received before explicit power status codes (5f:72:01 / 51:90:00).
  */
 
-const AppStateReducer = function (_appConfig) {
-  return ((appConfig) => {
-    const avrService = new AvrService(appConfig);
+const AppStateReducer = function (_commandOptions) {
+  return ((commandOptions) => {
+    const avrService = new AvrService(commandOptions);
     const mpService = new MpService();
 
     /**
@@ -329,7 +329,7 @@ const AppStateReducer = function (_appConfig) {
       },
       undefined,
     ];
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = AppStateReducer;

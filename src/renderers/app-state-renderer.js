@@ -1,9 +1,9 @@
 const { playRegExp } = require('../const');
 const AvrService = require('../services/avr-service');
 
-const AppStateRenderer = function (_appConfig) {
-  return ((appConfig) => {
-    const avrService = new AvrService(appConfig);
+const AppStateRenderer = function (_commandOptions) {
+  return ((commandOptions) => {
+    const avrService = new AvrService(commandOptions);
 
     const rightShiftString = (str, shift) => {
       const { length } = str;
@@ -51,7 +51,7 @@ const AppStateRenderer = function (_appConfig) {
       message = `[${rightShiftString(message, offset)}]`;
       return avrService.updateOsd(message);
     };
-  })(_appConfig);
+  })(_commandOptions);
 };
 
 module.exports = AppStateRenderer;

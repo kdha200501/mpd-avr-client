@@ -3,11 +3,11 @@ const { of } = require('rxjs');
 const { tvLaunchProfileTypeTvTypeMap } = require('../const');
 const { getInstance: getBraviaService } = require('./bravia-service');
 
-const tvServiceFactory = function (appConfig) {
+const tvServiceFactory = function (commandOptions) {
   const [tvLaunchProfilePath, tvType] = [
     ...tvLaunchProfileTypeTvTypeMap,
   ].reduce((acc, [_tvLaunchProfileType, _tvType]) => {
-    const _tvLaunchProfilePath = appConfig[_tvLaunchProfileType];
+    const _tvLaunchProfilePath = commandOptions[_tvLaunchProfileType];
 
     if (!_tvLaunchProfilePath) {
       return acc;
