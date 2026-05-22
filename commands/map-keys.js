@@ -190,7 +190,7 @@ module.exports = {
             console.log(
               `🔘 Press the remote control button corresponding to the "${button}" action`
             );
-            console.log('--- or press any keyboard key to skip ---');
+            console.log('--- or press Enter to skip ---');
 
             return appendToLircCodeIrccCodePair(acc, button, irccCode);
           },
