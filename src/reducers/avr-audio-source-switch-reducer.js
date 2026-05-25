@@ -1,23 +1,47 @@
-const { of } = require('rxjs');
-const { delay, switchMap, take } = require('rxjs/operators');
+const { readFile } = require('fs');
+const { of, Observable } = require('rxjs');
+const { shareReplay, delay, switchMap, take } = require('rxjs/operators');
 
 const { playRegExp } = require('../const');
 const AvrService = require('../services/avr-service');
 const MpService = require('../services/mp-service');
-const TvRemoteService = require('../services/tv-remote-service');
 const tvServiceFactory = require('../services/tv-service-factory');
 const ledServiceFactory = require('../services/led-service-factory');
 
 const AvrAudioSourceSwitchReducer = function (_commandOptions) {
   return ((commandOptions) => {
-    const { handOverAudioToTvCecCommand, audioVolumePresetForTv } =
-      /** @type {MainCommandOptions} */ commandOptions;
+    const {
+      handOverAudioToTvCecCommand,
+      audioVolumePresetForTv,
+      infraredRemoteControlMappingForTv,
+    } = /** @type {MainCommandOptions} */ commandOptions;
 
     const avrService = new AvrService(commandOptions);
     const mpService = new MpService();
-    const tvRemoteService = new TvRemoteService(commandOptions);
     const tvService = tvServiceFactory(commandOptions);
     const ledService = ledServiceFactory(commandOptions);
+
+    const lircCodeIrccCodeMap$ = new Observable((subscriber) => {
+      readFile(infraredRemoteControlMappingForTv, (err, data) => {
+        if (err) {
+          return subscriber.error(err);
+        }
+
+        try {
+          const lircCodeIrccCodePairs = JSON.parse(data.toString())
+            .map(([_, lircCode, irccCode]) => [lircCode, irccCode])
+            .filter(([lircCode, irccCode]) => lircCode && irccCode);
+
+          subscriber.next(new Map(lircCodeIrccCodePairs));
+          subscriber.complete();
+        } catch (err) {
+          subscriber.error(err);
+          subscriber.complete();
+        }
+      });
+
+      return () => {};
+    }).pipe(shareReplay());
 
     /**
      * Get the initial state
@@ -100,12 +124,6 @@ const AvrAudioSourceSwitchReducer = function (_commandOptions) {
 
     return [
       (acc, [event, appState]) => {
-        const { isAudioDeviceOn } = /** @type {AppState} */ appState;
-
-        if (!isAudioDeviceOn) {
-          return acc;
-        }
-
         const [avrVolumeStatus, [fromMpStatusState, toMpStatusState]] =
           /** @type {[AvrVolumeStatus, MpStatusStateTransition]} */ acc;
         const { source } =
@@ -205,17 +223,15 @@ const AvrAudioSourceSwitchReducer = function (_commandOptions) {
             // if the audio source has switched,
             // then handle the infrared transmission
             tvService.isEnabled() &&
-              tvRemoteService
-                .getLircCodeIrccCodeMap()
-                .subscribe((lircCodeIrccCodeMap) => {
-                  const irccCode = lircCodeIrccCodeMap.get(lircCode);
+              lircCodeIrccCodeMap$.subscribe((lircCodeIrccCodeMap) => {
+                const irccCode = lircCodeIrccCodeMap.get(lircCode);
 
-                  if (!irccCode) {
-                    return;
-                  }
+                if (!irccCode) {
+                  return;
+                }
 
-                  tvService.sendIrccCode(irccCode);
-                });
+                tvService.sendIrccCode(irccCode);
+              });
             return acc;
 
           default:

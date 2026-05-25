@@ -240,6 +240,7 @@ module.exports = {
       )
         .pipe(
           withLatestFrom(appStateChange$),
+          filter(([_, { isAudioDeviceOn }]) => isAudioDeviceOn),
           scan(...new AvrAudioSourceSwitchReducer(commandOptions)),
           takeUntil(destroy$)
         )
